@@ -13,6 +13,7 @@ jobs:
 
       # Base Infrastructure Cleanup
       - name: Nuke Preinstalled Bloatware
+        if: ${{ github.event.client_payload.nuke }}
         run: |
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
@@ -22,6 +23,7 @@ jobs:
 
       # Runtime Engines Initialization
       - name: Install Astral uv
+        if: ${{ github.event.client_payload.destination == 'hf' }}
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
@@ -54,6 +56,8 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
           ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
           ID: ${{ github.event.client_payload.ID }}
+          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.UPSTASH_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.UPSTASH_TOKEN }}
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
 
           # Fallback to a default script if no specific worker is provided in the payload
