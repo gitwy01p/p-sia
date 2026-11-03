@@ -1,0 +1,77 @@
+name: Gh App Pipeline
+
+on:
+  repository_dispatch:
+    types: [trigger-gh-app]
+
+jobs:
+  process-stream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Architecture
+        uses: actions/checkout@v4
+
+      # Base Infrastructure Cleanup
+      - name: Nuke Preinstalled Bloatware
+        run: |
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache
+          sudo docker system prune -af --volumes
+
+      # Runtime Engines Initialization
+      - name: Install Astral uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      # Only set up the Hugging Face CLI if targeted in the payload
+      - name: Install Hugging Face CLI via Standalone Script
+        if: ${{ github.event.client_payload.destination == 'hf' }}
+        env:
+          HF_CLI_BIN_DIR: "/usr/local/bin"
+        run: |
+          curl -LsSf https://hf.co | bash -s -- --exclude-skill
+
+      # Manage dependencies
+      - name: Install Dependencies
+        run: bun install
+
+      # Validates and runs whichever worker script you specify in the API request
+      - name: Execute Targeted Worker
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
+          ID: ${{ github.event.client_payload.ID }}
+          INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+
+          # Fallback to a default script if no specific worker is provided in the payload
+          TARGET_WORKER: ${{ github.event.client_payload.worker || 'index.ts' }}
+        run: |
+          echo "============================================="
+          echo "VALIDATION PHASE: Checking target script..."
+          echo "Target Script: $TARGET_WORKER"
+          echo "============================================="
+
+          # Check if the requested file actually exists on the runner's disk
+          if [ ! -f "$TARGET_WORKER" ]; then
+            echo "❌ CRITICAL ERROR: The requested worker file '$TARGET_WORKER' does not exist."
+            echo "Please check your API payload parameters for typos or verify the file is committed to Git."
+            echo "Current Workspace Files:"
+            find . -maxdepth 3 -name "*.ts" -not -path "*/node_modules/*"
+            exit 1
+          fi
+
+          echo "✅ Validation successful! Launching execution environment..."
+          bun run "$TARGET_WORKER"
