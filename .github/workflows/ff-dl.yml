@@ -206,6 +206,16 @@ jobs:
           command -v hf
           hf --version
 
+      # Set up FFmpeg
+      - name: Set up FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        id: setup-ffmpeg
+        with:
+          ffmpeg-version: "6.1.1"
+
+      - name: Verify FFmpeg Version
+        run: ffmpeg -version
+
       # Manage dependencies
       - name: Install Dependencies
         run: bun install
