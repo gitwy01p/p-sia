@@ -35,7 +35,11 @@ async function run() {
       process.exit(1);
     }
 
-    const data_key = task_payload.data_key;
+    const REQ0 = new URL(task_payload.REQ0);
+
+    console.log("REQ0 >>>", REQ0, "\n");
+
+    const data_key = REQ0.searchParams.get("data_key") || task_payload.data_key;
 
     const metadata = await (async () => {
       try {
@@ -65,10 +69,6 @@ async function run() {
         message: "Metadata not found"
       });
     }
-
-    const REQ0 = new URL(task_payload.REQ0);
-
-    console.log("REQ0 >>>", REQ0, "\n");
 
     const [E_, R_] = await NS_promise.F_catch_promise({
       promise: NS_ff_dl_stream.handle_payload({
