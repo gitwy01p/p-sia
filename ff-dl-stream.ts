@@ -52,14 +52,16 @@ async function run() {
           })()
         });
 
-        console.log("E_, R_", E_, R_, "\n");
-
         if (NS_Misc.F_is_record(R_)) return R_;
 
         const _ = await redis()?.get(`${data_key}`);
 
-        if (_) return _;
-      } catch {
+        console.log("_", _, "\n");
+
+        return _;
+      } catch (e) {
+        console.log("_e", e, "\n");
+
         return;
       }
     })();
