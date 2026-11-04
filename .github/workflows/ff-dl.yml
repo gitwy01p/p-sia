@@ -142,29 +142,69 @@ jobs:
           echo "✅ CLEANUP COMPLETE"
 
       # Runtime Engines Initialization
+      # Install Astral uv
       - name: Install Astral uv
         if: ${{ github.event.client_payload.task == 'ff-dl' }}
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
 
+      # Verify uv installation
+      - name: Verify Astral uv
+        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        shell: bash
+        run: |
+          set -e
+          command -v uv
+          uv --version
+          command -v uvx
+          uvx --version
+
+      # Install Node.js
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
+      # Verify Node.js installation
+      - name: Verify Node.js
+        shell: bash
+        run: |
+          set -e
+          command -v node
+          node --version
+          npm --version
+
+      # Install Bun
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
 
-      # Only set up the Hugging Face CLI if targeted in the payload
-      - name: Install Hugging Face CLI via Standalone Script
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
-        env:
-          HF_CLI_BIN_DIR: "/usr/local/bin"
+      # Verify Bun installation
+      - name: Verify Bun
+        shell: bash
         run: |
-          curl -LsSf https://hf.co | bash -s -- --exclude-skill
+          set -e
+          command -v bun
+          bun --version
+
+      # Install Hugging Face CLI
+      - name: Install Hugging Face CLI
+        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        shell: bash
+        run: |
+          set -e
+          curl -LsSf https://hf.co/cli/install.sh | bash -s -- --exclude-skill
+
+      # Verify Hugging Face CLI installation
+      - name: Verify Hugging Face CLI
+        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        shell: bash
+        run: |
+          set -e
+          command -v hf
+          hf --version
 
       # Manage dependencies
       - name: Install Dependencies
