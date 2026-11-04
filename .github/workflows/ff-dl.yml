@@ -6,7 +6,8 @@ on:
 
 jobs:
   process-stream:
-    runs-on: ubuntu-24.04
+    # runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
@@ -188,13 +189,7 @@ jobs:
           command -v hf
           hf --version
 
-      # # Set up FFmpeg
-      # - name: Set up FFmpeg
-      #   if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-      #   uses: FedericoCarboni/setup-ffmpeg@v3
-      #   id: setup-ffmpeg
-      #   with:
-      #     ffmpeg-version: release
+      # Set up FFmpeg
       - name: Install FFmpeg (apt)
         if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
         run: |
