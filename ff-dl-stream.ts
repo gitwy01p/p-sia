@@ -36,7 +36,15 @@ async function run() {
   const payload = JSON.parse(rawPayload);
 
   try {
-    const data_key = payload.data_key;
+    const task_payload = payload.task_payload;
+
+    if (!NS_Misc.F_is_record(task_payload)) {
+      process.exit(1);
+    }
+
+    const data_key = task_payload.data_key;
+
+    console.log("data_key", data_key, "\n");
 
     const metadata = await (async () => {
       try {
