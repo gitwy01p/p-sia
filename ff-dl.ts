@@ -39,8 +39,6 @@ async function run() {
 
     const REQ0 = new URL(task_payload.REQ0);
 
-    console.log("REQ0 >>>", REQ0, "\n");
-
     const data_key = REQ0.searchParams.get("data_key") || task_payload.data_key;
 
     const metadata = await (async () => {
@@ -64,6 +62,8 @@ async function run() {
         return;
       }
     })();
+
+    console.log("metadata >>>", metadata, "\n");
 
     if (!NS_Misc.F_is_record(metadata)) {
       throw NS_error.F_create_error({
