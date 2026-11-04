@@ -11,15 +11,35 @@ jobs:
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
 
-      # Base Infrastructure Cleanup
-      - name: Nuke Preinstalled Bloatware
+      # Base Infrastructure Cleanup & Space Logging
+      - name: Optimize & Nuke Bloatware
         if: ${{ github.event.client_payload.nuke }}
         run: |
+          echo "============================================="
+          echo "📊 INITIAL DISK SPACE"
+          echo "============================================="
+          df -h /
+
+          echo ""
+          echo "🧹 Commencing rapid cleanup..."
+          echo "============================================="
+
+          # Fast deletion of massive pre-installed runtimes
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache
-          sudo docker system prune -af --volumes
+
+          # FASTER DOCKER CLEANUP: Removes pre-cached images without blocking
+          # instead of running the intensive full system prune --volumes
+          sudo systemctl stop docker.service 2>/dev/null || true
+          sudo rm -rf /var/lib/docker
+
+          echo ""
+          echo "============================================="
+          echo "📊 POST-CLEANUP DISK SPACE"
+          echo "============================================="
+          df -h /
 
       # Runtime Engines Initialization
       - name: Install Astral uv
