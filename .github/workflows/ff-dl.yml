@@ -188,17 +188,19 @@ jobs:
           command -v hf
           hf --version
 
-      # Set up FFmpeg
-      - name: Set up FFmpeg
+      # # Set up FFmpeg
+      # - name: Set up FFmpeg
+      #   if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
+      #   uses: FedericoCarboni/setup-ffmpeg@v3
+      #   id: setup-ffmpeg
+      #   with:
+      #     ffmpeg-version: release
+      - name: Install FFmpeg (apt)
         if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        uses: FedericoCarboni/setup-ffmpeg@v3
-        id: setup-ffmpeg
-        with:
-          ffmpeg-version: release
-
-      - name: Verify FFmpeg Version
-        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        run: ffmpeg -version
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
 
       # Manage dependencies
       - name: Install Dependencies
