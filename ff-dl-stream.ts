@@ -35,8 +35,6 @@ async function run() {
 
   const payload = JSON.parse(rawPayload);
 
-  console.log({ payload }, "\n");
-
   try {
     const data_key = payload.data_key;
 
@@ -60,8 +58,6 @@ async function run() {
 
         return _;
       } catch (e) {
-        console.log("_e", e, "\n");
-
         return;
       }
     })();
