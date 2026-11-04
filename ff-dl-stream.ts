@@ -3,6 +3,7 @@ import { NS_runtime, set_env_var_db } from "@x/types/env.runtime";
 import { redis } from "@x/post-process/cache";
 import { NS_crypto_client } from "@x/core/client/crypto.ts";
 import { NS_promise } from "@x/core/client/promise.ts";
+import { NS_Misc } from "@x/core/client/misc.ts";
 
 run();
 
@@ -51,11 +52,13 @@ async function run() {
           })()
         });
 
-        if (R_) return R_;
+        console.log("E_, R_", E_, R_, "\n");
 
-        const _ = await redis()?.get("data_key");
+        if (NS_Misc.F_is_record(R_)) return R_;
 
-        return _;
+        const _ = await redis()?.get(`${data_key}`);
+
+        if (_) return _;
       } catch {
         return;
       }
