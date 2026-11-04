@@ -70,6 +70,14 @@ jobs:
       - name: Install Dependencies
         run: bun install
 
+      # Check disk metrics again right before launching runtime execution
+      - name: Log Pre-Execution Disk Space
+        run: |
+          echo "============================================="
+          echo "📊 PRE-EXECUTION DISK SPACE (After Installations)"
+          echo "============================================="
+          df -h /
+
       # Validates and runs whichever worker script you specify in the API request
       - name: Execute Targeted Worker
         env:
