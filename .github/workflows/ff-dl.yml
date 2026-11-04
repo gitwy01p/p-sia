@@ -23,7 +23,7 @@ jobs:
 
       # Runtime Engines Initialization
       - name: Install Astral uv
-        if: ${{ github.event.client_payload.destination == 'hf' }}
+        if: ${{ github.event.client_payload.task == 'ff-dl' }}
         uses: astral-sh/setup-uv@v3
         with:
           version: "latest"
@@ -40,7 +40,7 @@ jobs:
 
       # Only set up the Hugging Face CLI if targeted in the payload
       - name: Install Hugging Face CLI via Standalone Script
-        if: ${{ github.event.client_payload.destination == 'hf' }}
+        if: ${{ github.event.client_payload.task == 'ff-dl' }}
         env:
           HF_CLI_BIN_DIR: "/usr/local/bin"
         run: |
