@@ -189,6 +189,15 @@ jobs:
           command -v bun
           bun --version
 
+      # Cache Bun dependencies
+      - name: Cache Bun Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'bun.lockb') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
       # Install Hugging Face CLI
       - name: Install Hugging Face CLI
         if: ${{ github.event.client_payload.task == 'ff-dl' }}
