@@ -28,6 +28,8 @@ async function run() {
 
   const payload = JSON.parse(rawPayload);
 
+  console.log("PAYLOAD >>>", payload, "\n");
+
   try {
     const task_payload = payload.task_payload;
 
