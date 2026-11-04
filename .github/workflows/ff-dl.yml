@@ -173,7 +173,7 @@ jobs:
 
       # Install Hugging Face CLI
       - name: Install Hugging Face CLI
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        if: ${{ contains(github.event.client_payload.task, 'ff-dl') }}
         shell: bash
         run: |
           set -e
@@ -181,7 +181,7 @@ jobs:
 
       # Verify Hugging Face CLI installation
       - name: Verify Hugging Face CLI
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        if: ${{ contains(github.event.client_payload.task, 'ff-dl') }}
         shell: bash
         run: |
           set -e
@@ -190,12 +190,14 @@ jobs:
 
       # Set up FFmpeg
       - name: Set up FFmpeg
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
         uses: FedericoCarboni/setup-ffmpeg@v3
         id: setup-ffmpeg
         with:
           ffmpeg-version: release
 
       - name: Verify FFmpeg Version
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
         run: ffmpeg -version
 
       # Manage dependencies
