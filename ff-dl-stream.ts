@@ -68,6 +68,8 @@ async function run() {
 
     const REQ0 = new URL(task_payload.REQ0);
 
+    console.log("REQ0 >>>", REQ0, "\n");
+
     const [E_, R_] = await NS_promise.F_catch_promise({
       promise: NS_ff_dl_stream.handle_payload({
         data_key,
@@ -77,8 +79,9 @@ async function run() {
       })
     });
 
-    console.warn("E_", E_, "\n");
-    console.log("R_", R_, "\n");
+    if (E_) {
+      throw E_;
+    }
   } catch (error) {
     console.error(
       "Fatal exception caught during continuous streaming processing loop:",
