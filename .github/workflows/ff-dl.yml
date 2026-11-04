@@ -193,7 +193,7 @@ jobs:
         uses: FedericoCarboni/setup-ffmpeg@v3
         id: setup-ffmpeg
         with:
-          ffmpeg-version: "latest"
+          ffmpeg-version: 6.1.1
 
       - name: Verify FFmpeg Version
         run: ffmpeg -version
