@@ -222,8 +222,9 @@ jobs:
       - name: Execute Targeted Worker
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.UPSTASH_URL }}
-          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.UPSTASH_TOKEN }}
+          IS_GH: "1"
+          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.U_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
           ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
           ID: ${{ github.event.client_payload.ID }}
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}

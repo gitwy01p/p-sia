@@ -34,7 +34,7 @@ async function run() {
 
   const payload = JSON.parse(rawPayload);
 
-  console.log({ payload });
+  console.log({ payload }, "\n");
 
   try {
     const data_key = payload.data_key;
@@ -61,7 +61,7 @@ async function run() {
       }
     })();
 
-    console.log({ metadata });
+    console.log({ metadata }, "\n");
 
     if (!metadata) {
       throw NS_error.F_create_error({
