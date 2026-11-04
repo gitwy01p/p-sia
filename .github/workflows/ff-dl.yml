@@ -182,10 +182,10 @@ jobs:
       - name: Execute Targeted Worker
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
-          ID: ${{ github.event.client_payload.ID }}
           UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.UPSTASH_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.UPSTASH_TOKEN }}
+          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
+          ID: ${{ github.event.client_payload.ID }}
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
 
           # Fallback to a default script if no specific worker is provided in the payload
