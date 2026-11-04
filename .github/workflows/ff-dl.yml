@@ -142,24 +142,6 @@ jobs:
           echo "✅ CLEANUP COMPLETE"
 
       # Runtime Engines Initialization
-      # Install Astral uv
-      - name: Install Astral uv
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: "latest"
-
-      # Verify uv installation
-      - name: Verify Astral uv
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
-        shell: bash
-        run: |
-          set -e
-          command -v uv
-          uv --version
-          command -v uvx
-          uvx --version
-
       # Install Node.js
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -211,7 +193,7 @@ jobs:
         uses: FedericoCarboni/setup-ffmpeg@v3
         id: setup-ffmpeg
         with:
-          ffmpeg-version: "6.1.1"
+          ffmpeg-version: "latest"
 
       - name: Verify FFmpeg Version
         run: ffmpeg -version
