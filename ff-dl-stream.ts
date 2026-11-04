@@ -51,7 +51,7 @@ async function run() {
 
         if (NS_Misc.F_is_record(R_)) return R_;
 
-        console.log("_", _, "\n");
+        const _ = await redis()?.get(`${data_key}`);
 
         return _;
       } catch (e) {
@@ -87,9 +87,7 @@ async function run() {
     );
 
     process.exit(1);
+  } finally {
+    // process.exit(0);
   }
-
-  //finally {
-  //   process.exit(0);
-  // }
 }
