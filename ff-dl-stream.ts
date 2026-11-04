@@ -4,6 +4,7 @@ import { redis } from "@x/post-process/cache";
 import { NS_crypto_client } from "@x/core/client/crypto.ts";
 import { NS_promise } from "@x/core/client/promise.ts";
 import { NS_Misc } from "@x/core/client/misc.ts";
+import { NS_ff_dl_stream } from "@x/ff-dl/dl-stream";
 
 run();
 
@@ -14,14 +15,6 @@ async function run() {
   );
 
   await set_env_var_db();
-
-  console.log(
-    `Current Application Environment Context: ${NS_runtime.ENV_VAR_DB?.APP_ENV || process.env.APP_ENV}`,
-    `UPSTASH_REDIS_REST_URL: ${process.env.UPSTASH_REDIS_REST_URL}`,
-    `UPSTASH_REDIS_REST_TOKEN: ${process.env.UPSTASH_REDIS_REST_TOKEN}`,
-    `REPO_ORIGIN: ${process.env.REPO_ORIGIN}`,
-    "\n"
-  );
 
   const rawPayload = process.env.INPUT_PAYLOAD;
 
@@ -43,8 +36,6 @@ async function run() {
     }
 
     const data_key = task_payload.data_key;
-
-    console.log("data_key", data_key, "\n");
 
     const metadata = await (async () => {
       try {
@@ -70,14 +61,27 @@ async function run() {
       }
     })();
 
-    console.log({ metadata }, "\n");
-
-    if (!metadata) {
+    if (!NS_Misc.F_is_record(metadata)) {
       throw NS_error.F_create_error({
         status: 404,
         message: "Metadata not found"
       });
     }
+
+    const REQ0 = new URL(payload.REQ0);
+
+    const [E_, R_] = await NS_promise.F_catch_promise({
+      promise: NS_ff_dl_stream.handle_payload({
+        data_key,
+        metadata: metadata as any,
+        REQ0,
+        REQ_ORIGIN: REQ0.origin
+      })
+    });
+
+    console.warn("E_", E_, "\n");
+    console.log("R_", R_, "\n");
+    
   } catch (error) {
     console.error(
       "Fatal exception caught during continuous streaming processing loop:",
