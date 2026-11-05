@@ -4,6 +4,7 @@ import { redis } from "@x/post-process/cache";
 import { NS_promise } from "@x/core/client/promise.ts";
 import { NS_Misc } from "@x/core/client/misc.ts";
 import { FfmpegV2HandleProcessData } from "../app-render/src/sub-router/probe";
+import { NS_routes_c } from "@x/core/client/route.ts";
 
 run();
 
@@ -38,7 +39,9 @@ async function run() {
 
     const cache_id = task_payload.cache_id;
 
-    const REQ0 = new URL(task_payload.REQ0);
+    const REQ0 = NS_routes_c.F_is_url(task_payload.REQ0)
+      ? new URL(task_payload.REQ0)
+      : undefined;
 
     const playback = task_payload.playback;
     const live = task_payload.live;
