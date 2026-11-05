@@ -166,8 +166,9 @@ jobs:
           command -v bun
           bun --version
 
-      # FFmpeg, Hugging Face CLI and project dependencies are independent,
-      # so they install in parallel (wall time ~= the slowest one, not the sum).
+      # bun install ALWAYS runs. ffmpeg runs only if task has "ffmpeg", the
+      # HF CLI only if task has "ff-dl". All start together; the step waits
+      # for every job, prints each log, and fails the whole job if any failed.
       - name: Install FFmpeg, HF CLI & dependencies (parallel)
         shell: bash
         env:
@@ -188,6 +189,15 @@ jobs:
             names+=("$name")
           }
 
+          # task can be a string ("ffmpeg") or an array (["ffmpeg","ff-dl"])
+          has_task() {
+            jq -e --arg t "$1" '
+              if type == "array" then any(.[]; . == $t)
+              elif type == "string" then contains($t)
+              else false end
+            ' <<<"$TASK" >/dev/null
+          }
+
           install_ffmpeg() {
             sudo apt-get update -qq &&
             sudo apt-get install -y -qq --no-install-recommends ffmpeg &&
@@ -199,19 +209,27 @@ jobs:
             hf --version
           }
 
-          if [[ "$TASK" == *ffmpeg* ]]; then run_bg ffmpeg install_ffmpeg; fi
-          if [[ "$TASK" == *ff-dl* ]]; then run_bg hf install_hf; fi
+          # Start everything in parallel
           run_bg deps bun install --frozen-lockfile
+          if has_task ffmpeg; then run_bg ffmpeg install_ffmpeg; else echo "⏭️  skipping ffmpeg (task has no 'ffmpeg')"; fi
+          if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
 
+          # Wait for all, show logs, fail the job if any install failed
           fail=0
           for i in "${!pids[@]}"; do
-            if wait "${pids[$i]}"; then s=ok; else s=FAILED; fail=1; fi
+            if wait "${pids[$i]}"; then s="ok"; else s="FAILED"; fail=1; fi
             echo "::group::${names[$i]} ($s)"
             cat "$RUNNER_TEMP/${names[$i]}.log"
             echo "::endgroup::"
+            if [ "$s" = "FAILED" ]; then echo "::error::${names[$i]} install failed"; fi
           done
 
-          exit $fail
+          if [ "$fail" -ne 0 ]; then
+            echo "❌ One or more installs failed, aborting."
+            exit 1
+          fi
+
+          echo "✅ All installs finished."
 
       # Check disk metrics again right before launching runtime execution
       - name: Log Pre-Execution Disk Space
