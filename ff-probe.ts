@@ -73,11 +73,11 @@ async function run() {
     });
 
     if (E_) {
-      console.error(E_, "\n");
+      console.error("E_", E_, "\n");
       throw E_;
     }
 
-    console.log(R_, "\n");
+    console.log("R_", R_, "\n");
 
     // store the data in Redis
     const [E__, R__] = await NS_promise.F_catch_promise({
@@ -86,11 +86,11 @@ async function run() {
 
         if (!R_) return;
 
-        // 5 * 60 = 300 seconds
-        const FIVE_MINS_IN_SECONDS = 300;
+        // 1 * 60 = 60 seconds
+        const ONE_MIN_IN_SECONDS = 60;
 
         await redis()?.set(cache_id, R_, {
-          ex: FIVE_MINS_IN_SECONDS
+          ex: ONE_MIN_IN_SECONDS
         });
       })()
     });
