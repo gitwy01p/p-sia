@@ -31,11 +31,12 @@ async function run() {
 
   try {
     const task_payload = payload.task_payload;
-    const cache_id = payload.cache_id;
 
     if (!NS_Misc.F_is_record(task_payload)) {
       process.exit(1);
     }
+
+    const cache_id = task_payload.cache_id;
 
     const REQ0 = new URL(task_payload.REQ0);
 
