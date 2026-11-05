@@ -6,14 +6,25 @@ on:
 
 jobs:
   process-stream:
+    # Pinned: ubuntu-24.04 ships a stable apt ffmpeg (6.1.x) and avoids
+    # surprises when ubuntu-latest moves to a newer image.
     runs-on: ubuntu-24.04
-    # runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
 
+      # Keep payload secrets out of the logs (the worker logs the payload).
+      - name: Mask secrets
+        shell: bash
+        env:
+          U_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
+          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
+        run: |
+          if [ -n "$U_TOKEN" ]; then echo "::add-mask::$U_TOKEN"; fi
+          if [ -n "$ENV_VAR_JSON_DB" ]; then echo "::add-mask::$ENV_VAR_JSON_DB"; fi
+
       # Base Infrastructure Cleanup & Space Logging
-      - name: Optimize & Nuke Bloatware
+      - name: Nuke Bloatware (standard)
         if: ${{ github.event.client_payload.nuke }}
         run: |
           echo "============================================="
@@ -43,7 +54,7 @@ jobs:
           df -h /
 
       # Aggressive GitHub Runner Disk Cleanup
-      - name: Optimize & Nuke Bloatware
+      - name: Nuke Bloatware (aggressive)
         if: ${{ github.event.client_payload.nuke_aggr }}
         shell: bash
         run: |
@@ -100,7 +111,7 @@ jobs:
           echo "🧹 CLEANING SYSTEM CACHES"
           echo "============================================="
 
-          # APT package cache
+          # APT package cache (the install step below runs apt-get update itself)
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           sudo rm -rf /var/cache/apt/archives/*
@@ -142,29 +153,12 @@ jobs:
           echo ""
           echo "✅ CLEANUP COMPLETE"
 
-      # Runtime Engines Initialization
-      # Install Node.js
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      # Verify Node.js installation
-      - name: Verify Node.js
-        shell: bash
-        run: |
-          set -e
-          command -v node
-          node --version
-          npm --version
-
-      # Install Bun
+      # Install Bun (must run before the parallel install step)
       - name: Install Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: latest # consider pinning to the version your logs print
 
-      # Verify Bun installation
       - name: Verify Bun
         shell: bash
         run: |
@@ -172,34 +166,74 @@ jobs:
           command -v bun
           bun --version
 
-      # Install Hugging Face CLI
-      - name: Install Hugging Face CLI
-        if: ${{ contains(github.event.client_payload.task, 'ff-dl') }}
+      # bun install runs unless task has "skip-deps". ffmpeg runs only if task
+      # has "ffmpeg", the HF CLI only if task has "ff-dl". All start together; the step waits
+      # for every job, prints each log, and fails the whole job if any failed.
+      - name: Node Dependencies | Install FFmpeg | HF CLI (parallel)
         shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          TASK: ${{ toJson(github.event.client_payload.task) }}
         run: |
-          set -e
-          curl -LsSf https://hf.co/cli/install.sh | bash -s -- --exclude-skill
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # Verify Hugging Face CLI installation
-      - name: Verify Hugging Face CLI
-        if: ${{ contains(github.event.client_payload.task, 'ff-dl') }}
-        shell: bash
-        run: |
-          set -e
-          command -v hf
-          hf --version
+          pids=()
+          names=()
 
-      # Set up FFmpeg
-      - name: Install FFmpeg (apt)
-        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          ffmpeg -version | head -1
+          run_bg() {
+            local name=$1
+            shift
+            "$@" >"$RUNNER_TEMP/$name.log" 2>&1 &
+            pids+=($!)
+            names+=("$name")
+          }
 
-      # Manage dependencies
-      - name: Install Dependencies
-        run: bun install
+          # task can be a string ("ffmpeg") or an array (["ffmpeg","ff-dl"])
+          has_task() {
+            jq -e --arg t "$1" '
+              if type == "array" then any(.[]; . == $t)
+              elif type == "string" then contains($t)
+              else false end
+            ' <<<"$TASK" >/dev/null
+          }
+
+          install_ffmpeg() {
+            sudo apt-get update -qq &&
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg &&
+            ffmpeg -version | head -1
+          }
+
+          install_hf() {
+            curl -LsSf https://hf.co/cli/install.sh | bash -s -- --exclude-skill &&
+            hf --version
+          }
+
+          # Start everything in parallel
+          if has_task skip-deps; then
+            echo "⏭️  skipping bun install (task has 'skip-deps')"
+          else
+            run_bg deps bun install --frozen-lockfile
+          fi
+          if has_task ffmpeg; then run_bg ffmpeg install_ffmpeg; else echo "⏭️  skipping ffmpeg (task has no 'ffmpeg')"; fi
+          if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
+
+          # Wait for all, show logs, fail the job if any install failed
+          fail=0
+          for i in "${!pids[@]}"; do
+            if wait "${pids[$i]}"; then s="ok"; else s="FAILED"; fail=1; fi
+            echo "::group::${names[$i]} ($s)"
+            cat "$RUNNER_TEMP/${names[$i]}.log"
+            echo "::endgroup::"
+            if [ "$s" = "FAILED" ]; then echo "::error::${names[$i]} install failed"; fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "❌ One or more installs failed, aborting."
+            exit 1
+          fi
+
+          echo "✅ All installs finished."
 
       # Check disk metrics again right before launching runtime execution
       - name: Log Pre-Execution Disk Space
@@ -209,7 +243,7 @@ jobs:
           echo "============================================="
           df -h /
 
-      # Validates and runs whichever worker script you specify in the API request
+      # Run target worker
       - name: Execute Targeted Worker
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
@@ -220,8 +254,7 @@ jobs:
           ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
           ID: ${{ github.event.client_payload.ID }}
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
-
-          # Fallback to a default script if no specific worker is provided in the payload
+          # Fallback to a default script if no specific worker is provided
           TARGET_WORKER: ${{ github.event.client_payload.worker || 'index.ts' }}
         run: |
           echo "============================================="
