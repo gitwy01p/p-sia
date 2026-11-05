@@ -6,8 +6,8 @@ on:
 
 jobs:
   process-stream:
-    # runs-on: ubuntu-24.04
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    # runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
@@ -142,22 +142,6 @@ jobs:
           echo ""
           echo "✅ CLEANUP COMPLETE"
 
-      # Runtime Engines Initialization
-      # Install Node.js
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      # Verify Node.js installation
-      - name: Verify Node.js
-        shell: bash
-        run: |
-          set -e
-          command -v node
-          node --version
-          npm --version
-
       # Install Bun
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
@@ -190,16 +174,40 @@ jobs:
           hf --version
 
       # Set up FFmpeg
-      - name: Install FFmpeg (apt)
+      - name: Install FFmpeg (cached apt)
         if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-          ffmpeg -version | head -1
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: ffmpeg
+          version: 1.0
+
+      - name: Verify FFmpeg
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
+        run: ffmpeg -version | head -1
 
       # Manage dependencies
+      - name: Restore dependency cache
+        id: deps-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
+
       - name: Install Dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
+
+      - name: Save dependency cache
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: deps-${{ runner.os }}-${{ hashFiles('**/bun.lock', '**/bun.lockb') }}
 
       # Check disk metrics again right before launching runtime execution
       - name: Log Pre-Execution Disk Space
@@ -209,7 +217,7 @@ jobs:
           echo "============================================="
           df -h /
 
-      # Validates and runs whichever worker script you specify in the API request
+      # Run target worker
       - name: Execute Targeted Worker
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
@@ -220,8 +228,6 @@ jobs:
           ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
           ID: ${{ github.event.client_payload.ID }}
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
-
-          # Fallback to a default script if no specific worker is provided in the payload
           TARGET_WORKER: ${{ github.event.client_payload.worker || 'index.ts' }}
         run: |
           echo "============================================="

@@ -6,45 +6,43 @@ on:
 
 jobs:
   process-stream:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-24.04
+    # runs-on: ubuntu-latest
     steps:
-      # ==========================================
-      # CHECKOUT
-      # ==========================================
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
 
-      # ==========================================
-      # BASE INFRASTRUCTURE CLEANUP
-      # ==========================================
+      # Base Infrastructure Cleanup & Space Logging
       - name: Optimize & Nuke Bloatware
         if: ${{ github.event.client_payload.nuke }}
-        shell: bash
         run: |
           echo "============================================="
           echo "📊 INITIAL DISK SPACE"
           echo "============================================="
           df -h /
 
+          echo ""
           echo "🧹 Commencing rapid cleanup..."
+          echo "============================================="
 
+          # Fast deletion of massive pre-installed runtimes
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache
 
+          # FASTER DOCKER CLEANUP: Removes pre-cached images without blocking
+          # instead of running the intensive full system prune --volumes
           sudo systemctl stop docker.service 2>/dev/null || true
           sudo rm -rf /var/lib/docker
 
+          echo ""
           echo "============================================="
           echo "📊 POST-CLEANUP DISK SPACE"
           echo "============================================="
           df -h /
 
-      # ==========================================
-      # AGGRESSIVE RUNNER CLEANUP
-      # ==========================================
+      # Aggressive GitHub Runner Disk Cleanup
       - name: Optimize & Nuke Bloatware
         if: ${{ github.event.client_payload.nuke_aggr }}
         shell: bash
@@ -56,45 +54,73 @@ jobs:
           echo "============================================="
           df -h /
 
+          echo ""
           echo "🔍 ANALYZING LARGE DIRECTORIES"
           sudo du -xhd1 /usr /opt /var 2>/dev/null | sort -hr | head -30
 
+          echo ""
           echo "🧹 REMOVING UNNECESSARY RUNTIMES"
+          echo "============================================="
 
+          # Android and Microsoft
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
+
+          # Haskell
           sudo rm -rf /opt/ghc
           sudo rm -rf /usr/local/.ghcup
+
+          # GitHub preinstalled tool cache
           sudo rm -rf /opt/hostedtoolcache
+
+          # Swift
           sudo rm -rf /usr/share/swift
+
+          # Go
           sudo rm -rf /usr/local/go
+
+          # Azure CLI and SDK
           sudo rm -rf /opt/az
+
+          # Java and build tooling
           sudo rm -rf /usr/lib/jvm
           sudo rm -rf /usr/share/maven
           sudo rm -rf /usr/share/gradle
+
+          # Ruby and PHP
           sudo rm -rf /usr/lib/ruby
           sudo rm -rf /usr/share/rubygems-integration
           sudo rm -rf /usr/share/php
           sudo rm -rf /usr/lib/php
+
+          # PowerShell
           sudo rm -rf /usr/local/share/powershell
 
+          echo ""
           echo "🧹 CLEANING SYSTEM CACHES"
+          echo "============================================="
 
+          # APT package cache
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           sudo rm -rf /var/cache/apt/archives/*
 
+          # Temporary files
           sudo find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
           sudo find /var/tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
 
+          # Documentation and manual pages
           sudo rm -rf /usr/share/doc/*
           sudo rm -rf /usr/share/man/*
           sudo rm -rf /usr/share/info/*
 
+          # System crash dumps and logs
           sudo rm -rf /var/crash/*
           sudo journalctl --vacuum-size=10M 2>/dev/null
 
+          echo ""
           echo "🐳 DESTROYING DOCKER CACHE"
+          echo "============================================="
 
           sudo systemctl stop docker.socket 2>/dev/null
           sudo systemctl stop docker.service 2>/dev/null
@@ -103,43 +129,27 @@ jobs:
           sudo rm -rf /var/lib/docker
           sudo rm -rf /var/lib/containerd
 
+          echo ""
           echo "============================================="
           echo "📊 FINAL DISK SPACE"
           echo "============================================="
           df -h /
 
+          echo ""
           echo "📊 REMAINING LARGE DIRECTORIES"
           sudo du -xhd1 /usr /opt /var 2>/dev/null | sort -hr | head -20
 
+          echo ""
           echo "✅ CLEANUP COMPLETE"
 
-      # ==========================================
-      # INSTALL ASTRAL UV
-      # ==========================================
-      - name: Install Astral uv
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: latest
-
-      - name: Verify Astral uv
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
-        shell: bash
-        run: |
-          set -e
-          command -v uv
-          uv --version
-          command -v uvx
-          uvx --version
-
-      # ==========================================
-      # INSTALL NODE.JS
-      # ==========================================
+      # Runtime Engines Initialization
+      # Install Node.js
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
 
+      # Verify Node.js installation
       - name: Verify Node.js
         shell: bash
         run: |
@@ -148,14 +158,13 @@ jobs:
           node --version
           npm --version
 
-      # ==========================================
-      # INSTALL BUN
-      # ==========================================
+      # Install Bun
       - name: Install Bun
         uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
 
+      # Verify Bun installation
       - name: Verify Bun
         shell: bash
         run: |
@@ -163,124 +172,71 @@ jobs:
           command -v bun
           bun --version
 
-      # ==========================================
-      # INSTALL HUGGING FACE CLI
-      # ==========================================
+      # Install Hugging Face CLI
       - name: Install Hugging Face CLI
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        if: ${{ contains(github.event.client_payload.task, 'ff-dl') }}
         shell: bash
         run: |
           set -e
           curl -LsSf https://hf.co/cli/install.sh | bash -s -- --exclude-skill
 
+      # Verify Hugging Face CLI installation
       - name: Verify Hugging Face CLI
-        if: ${{ github.event.client_payload.task == 'ff-dl' }}
+        if: ${{ contains(github.event.client_payload.task, 'ff-dl') }}
         shell: bash
         run: |
           set -e
           command -v hf
           hf --version
 
-      # ==========================================
-      # DEPENDENCY CACHING
-      # ==========================================
-      - name: Cache Bun Dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            node_modules
-            ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'bun.lockb') }}
-
-      # ==========================================
-      # SMART DEPENDENCY VALIDATION
-      # ==========================================
-      - name: Smart Dependency Installation
-        shell: bash
+      # Set up FFmpeg
+      - name: Install FFmpeg (apt)
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
         run: |
-          set -e
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -1
 
-          echo "============================================="
-          echo "DEPENDENCY VALIDATION"
-          echo "============================================="
+      # Manage dependencies
+      - name: Install Dependencies
+        run: bun install
 
-          if [ -f bun.lock ]; then
-            LOCK_HASH=$(sha256sum bun.lock | awk '{print $1}')
-          elif [ -f bun.lockb ]; then
-            LOCK_HASH=$(sha256sum bun.lockb | awk '{print $1}')
-          else
-            echo "❌ No Bun lockfile found."
-            exit 1
-          fi
-
-          if [ -d node_modules ] && \
-             [ -f node_modules/.bun-lock-hash ] && \
-             [ "$(cat node_modules/.bun-lock-hash)" = "$LOCK_HASH" ]; then
-
-            echo "✅ node_modules exists."
-            echo "✅ Lockfile fingerprint matches."
-            echo "⏭️ Skipping bun install."
-
-          else
-
-            echo "📦 Cache missing or dependencies changed."
-            echo "Installing dependencies..."
-
-            bun install --frozen-lockfile
-
-            echo "$LOCK_HASH" > node_modules/.bun-lock-hash
-
-            echo "✅ Dependencies installed successfully."
-
-          fi
-
-      # ==========================================
-      # PRE-EXECUTION DISK METRICS
-      # ==========================================
+      # Check disk metrics again right before launching runtime execution
       - name: Log Pre-Execution Disk Space
-        shell: bash
         run: |
           echo "============================================="
-          echo "📊 PRE-EXECUTION DISK SPACE"
+          echo "📊 PRE-EXECUTION DISK SPACE (After Installations)"
           echo "============================================="
           df -h /
 
-      # ==========================================
-      # EXECUTE TARGET WORKER
-      # ==========================================
+      # Validates and runs whichever worker script you specify in the API request
       - name: Execute Targeted Worker
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
           IS_GH: "1"
-
+          NODE_ENV: "production"
           UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.U_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
-
           ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
           ID: ${{ github.event.client_payload.ID }}
-
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
 
+          # Fallback to a default script if no specific worker is provided in the payload
           TARGET_WORKER: ${{ github.event.client_payload.worker || 'index.ts' }}
-
-        shell: bash
         run: |
           echo "============================================="
-          echo "VALIDATION PHASE"
+          echo "VALIDATION PHASE: Checking target script..."
           echo "Target Script: $TARGET_WORKER"
           echo "============================================="
 
+          # Check if the requested file actually exists on the runner's disk
           if [ ! -f "$TARGET_WORKER" ]; then
-            echo "❌ CRITICAL ERROR: Worker does not exist."
-            echo "Target: $TARGET_WORKER"
-
+            echo "❌ CRITICAL ERROR: The requested worker file '$TARGET_WORKER' does not exist."
+            echo "Please check your API payload parameters for typos or verify the file is committed to Git."
             echo "Current Workspace Files:"
             find . -maxdepth 3 -name "*.ts" -not -path "*/node_modules/*"
-
             exit 1
           fi
 
-          echo "✅ Validation successful!"
-          echo "🚀 Launching worker..."
-
+          echo "✅ Validation successful! Launching execution environment..."
           bun run "$TARGET_WORKER"
