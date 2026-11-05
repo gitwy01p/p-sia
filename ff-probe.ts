@@ -70,8 +70,11 @@ async function run() {
     });
 
     if (E_) {
+      console.error(E_, "\n");
       throw E_;
     }
+
+    console.log(R_, "\n");
 
     // store the data in Redis
     const [E__, R__] = await NS_promise.F_catch_promise({
