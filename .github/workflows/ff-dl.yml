@@ -174,16 +174,14 @@ jobs:
           hf --version
 
       # Set up FFmpeg
-      - name: Install FFmpeg (cached apt)
+      - name: Install FFmpeg (apt)
         if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: ffmpeg
-          version: 1.0
-
-      - name: Verify FFmpeg
-        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        run: ffmpeg -version | head -1
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          ffmpeg -version | head -1
 
       # Manage dependencies
       - name: Restore dependency cache
