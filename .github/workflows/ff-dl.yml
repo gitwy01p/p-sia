@@ -1,5 +1,7 @@
 name: Gh App Pipeline
 
+run-name: "${{ github.event.client_payload.title || format('{0} #{1}', github.event.action, github.run_number) }}"
+
 on:
   repository_dispatch:
     types: [trigger-gh-app]
