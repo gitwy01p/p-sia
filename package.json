@@ -3,8 +3,15 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:tsdown": "bun run build:tsdown:1 && bun run build:tsdown:2",
+    "build:tsdown:1": "bun run tsdown -c ./1.tsdown.config.ts",
+    "build:tsdown:2": "bun run tsdown -c ./2.tsdown.config.ts"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "tsdown": "^0.23.5"
   },
   "peerDependencies": {
     "typescript": "^5"

@@ -166,10 +166,10 @@ jobs:
           command -v bun
           bun --version
 
-      # bun install ALWAYS runs. ffmpeg runs only if task has "ffmpeg", the
-      # HF CLI only if task has "ff-dl". All start together; the step waits
+      # bun install runs unless task has "skip-deps". ffmpeg runs only if task
+      # has "ffmpeg", the HF CLI only if task has "ff-dl". All start together; the step waits
       # for every job, prints each log, and fails the whole job if any failed.
-      - name: Install FFmpeg, HF CLI & dependencies (parallel)
+      - name: Node Dependencies | Install FFmpeg | HF CLI (parallel)
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -210,7 +210,11 @@ jobs:
           }
 
           # Start everything in parallel
-          run_bg deps bun install --frozen-lockfile
+          if has_task skip-deps; then
+            echo "⏭️  skipping bun install (task has 'skip-deps')"
+          else
+            run_bg deps bun install --frozen-lockfile
+          fi
           if has_task ffmpeg; then run_bg ffmpeg install_ffmpeg; else echo "⏭️  skipping ffmpeg (task has no 'ffmpeg')"; fi
           if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
 
