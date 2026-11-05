@@ -74,6 +74,28 @@ async function run() {
 
     if (E_) {
       console.error("E_", E_, "\n");
+
+      const { message } = NS_error.F_collect_error_message({ ERR: E_ });
+
+      const [E__, R__] = await NS_promise.F_catch_promise({
+        promise: (async () => {
+          if (!cache_id) return;
+
+          // 1 * 60 = 60 seconds
+          const ONE_MIN_IN_SECONDS = 60;
+
+          await redis()?.set(
+            cache_id,
+            {
+              error: message
+            },
+            {
+              ex: ONE_MIN_IN_SECONDS
+            }
+          );
+        })()
+      });
+
       throw E_;
     }
 
