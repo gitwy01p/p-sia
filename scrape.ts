@@ -14,7 +14,7 @@ async function run() {
   console.log(
     "Initializing application lifecycle and environment configurations..."
   );
-  console.log("");
+  console.log(" ");
 
   await set_env_var_db();
 
@@ -28,7 +28,7 @@ async function run() {
   const payload = JSON.parse(rawPayload);
 
   console.log("PAYLOAD >>>", payload);
-  console.log("");
+  console.log(" ");
 
   try {
     const task_payload = payload.task_payload;
@@ -60,7 +60,7 @@ async function run() {
 
     if (E_) {
       console.error("E_", E_);
-      console.log("");
+      console.log(" ");
 
       const { message } = NS_error.F_collect_error_message({ ERR: E_ });
 
@@ -87,7 +87,7 @@ async function run() {
     }
 
     console.log("R_", R_);
-    console.log("");
+    console.log(" ");
 
     const [E__, R__] = await NS_promise.F_catch_promise({
       promise: (async () => {
