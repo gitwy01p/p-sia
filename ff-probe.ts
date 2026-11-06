@@ -10,25 +10,25 @@ run();
 
 async function run() {
   console.log(
-    "Initializing application lifecycle and environment configurations...",
-    "\n"
+    "Initializing application lifecycle and environment configurations..."
   );
+  console.log("");
 
   await set_env_var_db();
 
   const rawPayload = process.env.INPUT_PAYLOAD;
 
   if (!rawPayload) {
-    console.error(
-      "Critical Failure: Incoming client trigger payload missing.",
-      "\n"
-    );
+    console.error("Critical Failure: Incoming client trigger payload missing.");
+    console.log("");
+
     process.exit(1);
   }
 
   const payload = JSON.parse(rawPayload);
 
-  console.log("PAYLOAD >>>", payload, "\n");
+  console.log("PAYLOAD >>>", payload);
+  console.log("");
 
   try {
     const task_payload = payload.task_payload;
@@ -73,7 +73,8 @@ async function run() {
     });
 
     if (E_) {
-      console.error("E_", E_, "\n");
+      console.error("E_", E_);
+      console.log("");
 
       const { message } = NS_error.F_collect_error_message({ ERR: E_ });
 
@@ -99,7 +100,8 @@ async function run() {
       throw E_;
     }
 
-    console.log("R_", R_, "\n");
+    console.log("R_", R_);
+    console.log("");
 
     // store the data in Redis
     const [E__, R__] = await NS_promise.F_catch_promise({
@@ -119,9 +121,9 @@ async function run() {
   } catch (error) {
     console.error(
       "Fatal exception caught during continuous streaming processing loop:",
-      error,
-      "\n"
+      error
     );
+    console.log("");
 
     process.exit(1);
   } finally {
