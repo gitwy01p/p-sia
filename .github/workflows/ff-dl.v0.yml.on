@@ -1,5 +1,7 @@
 name: Gh App Pipeline
 
+run-name: "${{ github.event.client_payload.title || format('{0} #{1}', github.event.action, github.run_number) }}"
+
 on:
   repository_dispatch:
     types: [trigger-gh-app]
@@ -170,6 +172,7 @@ jobs:
       # has "ffmpeg", the HF CLI only if task has "ff-dl". All start together; the step waits
       # for every job, prints each log, and fails the whole job if any failed.
       - name: Node Dependencies | Install FFmpeg | HF CLI (parallel)
+        timeout-minutes: 5 # hard stop: a hung install can never burn 30 minutes again
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -189,6 +192,10 @@ jobs:
             names+=("$name")
           }
 
+          # No retries: every network command below is wrapped in `timeout`,
+          # so a stalled download is killed and fails the step instead of
+          # hanging forever.
+
           # task can be a string ("ffmpeg") or an array (["ffmpeg","ff-dl"])
           has_task() {
             jq -e --arg t "$1" '
@@ -198,14 +205,33 @@ jobs:
             ' <<<"$TASK" >/dev/null
           }
 
+          APT_OPTS=(
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+          )
+
+          install_deps() {
+            timeout -k 10 240 bun install --frozen-lockfile
+          }
+
+          # Try the install first (runner apt lists are usually fresh enough);
+          # only run `apt-get update` if it fails, then install again.
           install_ffmpeg() {
-            sudo apt-get update -qq &&
-            sudo apt-get install -y -qq --no-install-recommends ffmpeg &&
+            {
+              timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg ||
+              {
+                timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+                timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
+              }
+            } &&
             ffmpeg -version | head -1
           }
 
           install_hf() {
-            curl -LsSf https://hf.co/cli/install.sh | bash -s -- --exclude-skill &&
+            curl --connect-timeout 20 --max-time 120 -LsSf \
+              https://hf.co/cli/install.sh -o "$RUNNER_TEMP/hf-install.sh" &&
+            timeout -k 10 300 bash "$RUNNER_TEMP/hf-install.sh" --exclude-skill &&
             hf --version
           }
 
@@ -213,12 +239,27 @@ jobs:
           if has_task skip-deps; then
             echo "⏭️  skipping bun install (task has 'skip-deps')"
           else
-            run_bg deps bun install --frozen-lockfile
+            run_bg deps install_deps
           fi
           if has_task ffmpeg; then run_bg ffmpeg install_ffmpeg; else echo "⏭️  skipping ffmpeg (task has no 'ffmpeg')"; fi
           if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
 
-          # Wait for all, show logs, fail the job if any install failed
+          # Heartbeat: show which jobs are still running and their last log line,
+          # so a stall is visible immediately instead of a silent step.
+          while :; do
+            alive=()
+            for i in "${!pids[@]}"; do
+              if kill -0 "${pids[$i]}" 2>/dev/null; then alive+=("${names[$i]}"); fi
+            done
+            [ "${#alive[@]}" -eq 0 ] && break
+            sleep 10
+            echo "⏳ ${SECONDS}s elapsed, still running: ${alive[*]}"
+            for n in "${alive[@]}"; do
+              echo "   ↳ $n: $(tail -n 1 "$RUNNER_TEMP/$n.log" 2>/dev/null | cut -c1-200)"
+            done
+          done
+
+          # Collect results, show logs, fail the job if any install failed
           fail=0
           for i in "${!pids[@]}"; do
             if wait "${pids[$i]}"; then s="ok"; else s="FAILED"; fail=1; fi
