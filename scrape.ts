@@ -5,6 +5,8 @@ import { NS_promise } from "@x/core/client/promise.ts";
 import { NS_Misc } from "@x/core/client/misc.ts";
 import { PptXGenericProcessHandler } from "@x/ppt/routes/generic.ts";
 import { NS_routes_c } from "@x/core/client/route.ts";
+import { FfmpegV2HandleProcessData } from "../app-render/src/sub-router/probe";
+import { NS_scrape_post_processing_helper } from "@x/post-process/helper";
 
 run();
 
@@ -48,7 +50,11 @@ async function run() {
       promise: PptXGenericProcessHandler({
         payload: body,
         portal,
-        REQ_ORIGIN: REQ0?.origin
+        REQ_ORIGIN: REQ0?.origin,
+        self_host: {
+          probe: FfmpegV2HandleProcessData,
+          proxies: await get_dbproxy()
+        }
       })
     });
 
@@ -108,4 +114,50 @@ async function run() {
   } finally {
     process.exit(0);
   }
+}
+
+async function get_dbproxy() {
+  // workerd
+  const workerd = await NS_scrape_post_processing_helper.get_cloudflare_proxy(
+    {}
+  );
+
+  if (!workerd?.available) {
+    throw new Error("dbp workerd not available");
+  }
+
+  // workerv
+  let workerv = await NS_scrape_post_processing_helper.get_alwaysdata_proxy({});
+
+  if (!workerv?.available) {
+    workerv = workerd;
+  }
+
+  // workereo
+  let workereo = await NS_scrape_post_processing_helper.get_edgeone_proxy({});
+
+  if (!workereo?.available) {
+    workereo = workerd;
+  }
+
+  // serverful
+  const workersf = await NS_scrape_post_processing_helper.get_serverful_proxy(
+    {}
+  );
+
+  if (!workersf?.available && !workersf?.fallback) {
+    throw new Error("dbp serverful not available");
+  }
+
+  const is_fallback = true;
+
+  return {
+    workerd: new URL(workerd.available),
+    workerv: new URL(workerv.available),
+    workereo: new URL(workereo.available),
+    workersf: {
+      _: new URL(workersf.available || workersf.fallback),
+      is_fallback
+    }
+  };
 }
