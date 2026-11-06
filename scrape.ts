@@ -100,9 +100,13 @@ async function run() {
         // 1 * 60 = 60 seconds
         const ONE_MIN_IN_SECONDS = 60;
 
-        await redis()?.set(cache_id, R_, {
-          ex: ONE_MIN_IN_SECONDS
-        });
+        await redis()?.set(
+          cache_id,
+          { data: R_ },
+          {
+            ex: ONE_MIN_IN_SECONDS
+          }
+        );
       })()
     });
   } catch (error) {
