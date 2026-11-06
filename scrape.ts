@@ -46,6 +46,11 @@ async function run() {
     const body = task_payload.body;
     const portal = task_payload.portal;
 
+    const proxies = await get_dbproxy();
+
+    console.log("proxies", proxies);
+    console.log(" ");
+
     const [E_, R_] = await NS_promise.F_catch_promise({
       promise: PptXGenericProcessHandler({
         payload: body,
@@ -53,7 +58,7 @@ async function run() {
         REQ_ORIGIN: REQ0?.origin,
         self_host: {
           probe: FfmpegV2HandleProcessData,
-          proxies: await get_dbproxy()
+          proxies: proxies
         }
       })
     });
