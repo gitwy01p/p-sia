@@ -10,25 +10,24 @@ run();
 
 async function run() {
   console.log(
-    "Initializing application lifecycle and environment configurations...",
-    "\n"
+    "Initializing application lifecycle and environment configurations..."
   );
+  console.log(" ");
 
   await set_env_var_db();
 
   const rawPayload = process.env.INPUT_PAYLOAD;
 
   if (!rawPayload) {
-    console.error(
-      "Critical Failure: Incoming client trigger payload missing.",
-      "\n"
-    );
+    console.error("Critical Failure: Incoming client trigger payload missing.");
+    console.log(" ");
     process.exit(1);
   }
 
   const payload = JSON.parse(rawPayload);
 
-  console.log("PAYLOAD >>>", payload, "\n");
+  console.log("PAYLOAD >>>", payload);
+  console.log(" ");
 
   try {
     const task_payload = payload.task_payload;
@@ -63,7 +62,8 @@ async function run() {
       }
     })();
 
-    console.log("metadata >>>", metadata, "\n");
+    console.log("metadata >>>", metadata);
+    console.log(" ");
 
     if (!NS_Misc.F_is_record(metadata)) {
       throw NS_error.F_create_error({
@@ -86,9 +86,9 @@ async function run() {
   } catch (error) {
     console.error(
       "Fatal exception caught during continuous streaming processing loop:",
-      error,
-      "\n"
+      error
     );
+    console.log(" ");
 
     process.exit(1);
   } finally {

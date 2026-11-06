@@ -48,9 +48,6 @@ async function run() {
 
     const proxies = await get_dbproxy();
 
-    console.log("proxies", proxies);
-    console.log(" ");
-
     const [E_, R_] = await NS_promise.F_catch_promise({
       promise: PptXGenericProcessHandler({
         payload: body,
