@@ -28,9 +28,10 @@ jobs:
       # Base Infrastructure Cleanup & Space Logging
       - name: Free disk space (standard)
         if: ${{ github.event.client_payload.nuke }}
-        uses: jlumbroso/free-disk-space@main # pin a tag or commit SHA instead
+        timeout-minutes: 4
+        uses: jlumbroso/free-disk-space@main
         with:
-          tool-cache: true
+          preinstalled-runtimes: true
           android: true
           dotnet: true
           haskell: true
@@ -41,9 +42,10 @@ jobs:
       # Aggressive GitHub Runner Disk Cleanup
       - name: Free disk space (aggressive)
         if: ${{ github.event.client_payload.nuke_aggr }}
+        timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
         with:
-          tool-cache: true
+          preinstalled-runtimes: true
           android: true
           dotnet: true
           haskell: true
@@ -55,7 +57,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest # consider pinning to the version your logs print
+          bun-version: latest
 
       - name: Verify Bun
         shell: bash
@@ -68,7 +70,7 @@ jobs:
       # has "ffmpeg", the HF CLI only if task has "ff-dl". All start together; the step waits
       # for every job, prints each log, and fails the whole job if any failed.
       - name: Node Dependencies | Install FFmpeg | HF CLI (parallel)
-        timeout-minutes: 5 # hard stop: a hung install can never burn 30 minutes again
+        timeout-minutes: 2
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -203,8 +205,6 @@ jobs:
           if [ ! -f "$TARGET_WORKER" ]; then
             echo "❌ CRITICAL ERROR: The requested worker file '$TARGET_WORKER' does not exist."
             echo "Please check your API payload parameters for typos or verify the file is committed to Git."
-            echo "Current Workspace Files:"
-            find . -maxdepth 3 -name "*.ts" -not -path "*/node_modules/*"
             exit 1
           fi
 
