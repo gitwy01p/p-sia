@@ -18,148 +18,45 @@ jobs:
       # Keep payload secrets out of the logs (the worker logs the payload).
       - name: Mask secrets
         shell: bash
-        env:
-          U_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
-          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
         run: |
-          if [ -n "$U_TOKEN" ]; then echo "::add-mask::$U_TOKEN"; fi
-          if [ -n "$ENV_VAR_JSON_DB" ]; then echo "::add-mask::$ENV_VAR_JSON_DB"; fi
+          for key in U_TOKEN ENV_VAR_JSON_DB; do
+            value=$(jq -r --arg k "$key" '.client_payload[$k] // empty' "$GITHUB_EVENT_PATH")
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
 
       # Base Infrastructure Cleanup & Space Logging
-      - name: Nuke Bloatware (standard)
+      - name: Free disk space (standard)
         if: ${{ github.event.client_payload.nuke }}
-        run: |
-          echo "============================================="
-          echo "📊 INITIAL DISK SPACE"
-          echo "============================================="
-          df -h /
-
-          echo ""
-          echo "🧹 Commencing rapid cleanup..."
-          echo "============================================="
-
-          # Fast deletion of massive pre-installed runtimes
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-
-          # FASTER DOCKER CLEANUP: Removes pre-cached images without blocking
-          # instead of running the intensive full system prune --volumes
-          sudo systemctl stop docker.service 2>/dev/null || true
-          sudo rm -rf /var/lib/docker
-
-          echo ""
-          echo "============================================="
-          echo "📊 POST-CLEANUP DISK SPACE"
-          echo "============================================="
-          df -h /
+        timeout-minutes: 4
+        uses: jlumbroso/free-disk-space@main
+        with:
+          preinstalled-runtimes: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          large-packages: false
+          swap-storage: false
 
       # Aggressive GitHub Runner Disk Cleanup
-      - name: Nuke Bloatware (aggressive)
+      - name: Free disk space (aggressive)
         if: ${{ github.event.client_payload.nuke_aggr }}
-        shell: bash
-        run: |
-          set +e
-
-          echo "============================================="
-          echo "📊 INITIAL DISK SPACE"
-          echo "============================================="
-          df -h /
-
-          echo ""
-          echo "🔍 ANALYZING LARGE DIRECTORIES"
-          sudo du -xhd1 /usr /opt /var 2>/dev/null | sort -hr | head -30
-
-          echo ""
-          echo "🧹 REMOVING UNNECESSARY RUNTIMES"
-          echo "============================================="
-
-          # Android and Microsoft
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-
-          # Haskell
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/.ghcup
-
-          # GitHub preinstalled tool cache
-          sudo rm -rf /opt/hostedtoolcache
-
-          # Swift
-          sudo rm -rf /usr/share/swift
-
-          # Go
-          sudo rm -rf /usr/local/go
-
-          # Azure CLI and SDK
-          sudo rm -rf /opt/az
-
-          # Java and build tooling
-          sudo rm -rf /usr/lib/jvm
-          sudo rm -rf /usr/share/maven
-          sudo rm -rf /usr/share/gradle
-
-          # Ruby and PHP
-          sudo rm -rf /usr/lib/ruby
-          sudo rm -rf /usr/share/rubygems-integration
-          sudo rm -rf /usr/share/php
-          sudo rm -rf /usr/lib/php
-
-          # PowerShell
-          sudo rm -rf /usr/local/share/powershell
-
-          echo ""
-          echo "🧹 CLEANING SYSTEM CACHES"
-          echo "============================================="
-
-          # APT package cache (the install step below runs apt-get update itself)
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo rm -rf /var/cache/apt/archives/*
-
-          # Temporary files
-          sudo find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
-          sudo find /var/tmp -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null
-
-          # Documentation and manual pages
-          sudo rm -rf /usr/share/doc/*
-          sudo rm -rf /usr/share/man/*
-          sudo rm -rf /usr/share/info/*
-
-          # System crash dumps and logs
-          sudo rm -rf /var/crash/*
-          sudo journalctl --vacuum-size=10M 2>/dev/null
-
-          echo ""
-          echo "🐳 DESTROYING DOCKER CACHE"
-          echo "============================================="
-
-          sudo systemctl stop docker.socket 2>/dev/null
-          sudo systemctl stop docker.service 2>/dev/null
-          sudo systemctl stop containerd.service 2>/dev/null
-
-          sudo rm -rf /var/lib/docker
-          sudo rm -rf /var/lib/containerd
-
-          echo ""
-          echo "============================================="
-          echo "📊 FINAL DISK SPACE"
-          echo "============================================="
-          df -h /
-
-          echo ""
-          echo "📊 REMAINING LARGE DIRECTORIES"
-          sudo du -xhd1 /usr /opt /var 2>/dev/null | sort -hr | head -20
-
-          echo ""
-          echo "✅ CLEANUP COMPLETE"
+        timeout-minutes: 4
+        uses: jlumbroso/free-disk-space@main
+        with:
+          preinstalled-runtimes: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          large-packages: true
+          swap-storage: true
 
       # Install Bun (must run before the parallel install step)
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest # consider pinning to the version your logs print
+          bun-version: latest
 
       - name: Verify Bun
         shell: bash
@@ -168,11 +65,15 @@ jobs:
           command -v bun
           bun --version
 
-      # bun install runs unless task has "skip-deps". ffmpeg runs only if task
-      # has "ffmpeg", the HF CLI only if task has "ff-dl". All start together; the step waits
-      # for every job, prints each log, and fails the whole job if any failed.
-      - name: Node Dependencies | Install FFmpeg | HF CLI (parallel)
-        timeout-minutes: 5 # hard stop: a hung install can never burn 30 minutes again
+      # Task flags (string or array):
+      #   ffmpeg           install ffmpeg
+      #   ff-dl            install the Hugging Face CLI
+      #   puppeteer        download Chrome for Puppeteer (also relaxes the Ubuntu 24.04 sandbox restriction)
+      #   puppeteer-deps   same, plus Chrome's system libraries (--install-deps, runs as root)
+      #   puppeteer-shell  also download chrome-headless-shell
+      #   skip-deps        skip bun install
+      - name: Node Dependencies | Install FFmpeg | HF CLI | Puppeteer Chrome (parallel)
+        timeout-minutes: 5
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -183,6 +84,11 @@ jobs:
 
           pids=()
           names=()
+          deps_started=0
+
+          # Only one apt/dpkg user at a time: ffmpeg and puppeteer --install-deps
+          # both call apt, and concurrent runs fight over the dpkg lock.
+          APT_LOCK="$RUNNER_TEMP/apt.lock"
 
           run_bg() {
             local name=$1
@@ -211,20 +117,29 @@ jobs:
             -o DPkg::Lock::Timeout=60
           )
 
+          # Drops a marker file so the puppeteer job knows when node_modules is ready
           install_deps() {
-            timeout -k 10 240 bun install --frozen-lockfile
+            if timeout -k 10 240 bun install --frozen-lockfile; then
+              touch "$RUNNER_TEMP/deps.ok"
+            else
+              touch "$RUNNER_TEMP/deps.fail"
+              return 1
+            fi
           }
 
           # Try the install first (runner apt lists are usually fresh enough);
           # only run `apt-get update` if it fails, then install again.
           install_ffmpeg() {
-            {
-              timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg ||
+            (
+              flock 9
               {
-                timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
-                timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
+                timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg ||
+                {
+                  timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+                  timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
+                }
               }
-            } &&
+            ) 9>"$APT_LOCK" &&
             ffmpeg -version | head -1
           }
 
@@ -235,14 +150,69 @@ jobs:
             hf --version
           }
 
+          # Bun does not run dependency postinstall scripts by default, so the
+          # puppeteer package never downloads its own Chrome. Download it here.
+          # Puppeteer expects one specific Chrome build, so use the project's own
+          # puppeteer version: that means waiting for `bun install` first.
+          install_puppeteer() {
+            local i cache="$HOME/.cache/puppeteer"
+
+            # Ubuntu 24.04 blocks unprivileged user namespaces via AppArmor,
+            # which breaks Chrome's sandbox ("No usable sandbox").
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 ||
+              echo "⚠️  could not relax the AppArmor restriction; launch Chrome with --no-sandbox instead"
+
+            if [ "$deps_started" = "1" ]; then
+              echo "waiting for bun install..."
+              for ((i = 0; i < 300; i++)); do
+                [ -f "$RUNNER_TEMP/deps.ok" ] && break
+                if [ -f "$RUNNER_TEMP/deps.fail" ]; then
+                  echo "bun install failed, cannot install browsers"
+                  return 1
+                fi
+                sleep 1
+              done
+              if [ ! -f "$RUNNER_TEMP/deps.ok" ]; then
+                echo "timed out waiting for bun install"
+                return 1
+              fi
+            else
+              echo "⚠️  skip-deps is set: fetching puppeteer via bunx, its Chrome build may not match your project's puppeteer version"
+            fi
+
+            if has_task puppeteer-deps; then
+              # --install-deps needs root, so run as root but keep the browser in
+              # the runner user's cache dir, then hand ownership back.
+              (
+                flock 9
+                timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+                timeout -k 10 400 sudo -E env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$cache" \
+                  bunx --bun puppeteer browsers install chrome --install-deps
+              ) 9>"$APT_LOCK" || return 1
+              sudo chown -R "$(id -u):$(id -g)" "$cache" || return 1
+            else
+              timeout -k 10 300 bunx --bun puppeteer browsers install chrome || return 1
+            fi
+
+            if has_task puppeteer-shell; then
+              timeout -k 10 300 bunx --bun puppeteer browsers install chrome-headless-shell || return 1
+            fi
+          }
+
           # Start everything in parallel
           if has_task skip-deps; then
             echo "⏭️  skipping bun install (task has 'skip-deps')"
           else
+            deps_started=1
             run_bg deps install_deps
           fi
           if has_task ffmpeg; then run_bg ffmpeg install_ffmpeg; else echo "⏭️  skipping ffmpeg (task has no 'ffmpeg')"; fi
           if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
+          if has_task puppeteer || has_task puppeteer-deps || has_task puppeteer-shell; then
+            run_bg puppeteer install_puppeteer
+          else
+            echo "⏭️  skipping puppeteer Chrome (task has no 'puppeteer*')"
+          fi
 
           # Heartbeat: show which jobs are still running and their last log line,
           # so a stall is visible immediately instead of a silent step.
@@ -307,8 +277,6 @@ jobs:
           if [ ! -f "$TARGET_WORKER" ]; then
             echo "❌ CRITICAL ERROR: The requested worker file '$TARGET_WORKER' does not exist."
             echo "Please check your API payload parameters for typos or verify the file is committed to Git."
-            echo "Current Workspace Files:"
-            find . -maxdepth 3 -name "*.ts" -not -path "*/node_modules/*"
             exit 1
           fi
 

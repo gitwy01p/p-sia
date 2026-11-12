@@ -22,15 +22,14 @@ jobs:
 
       - name: Mask secrets
         shell: bash
-        env:
-          U_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
-          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
         run: |
-          if [ -n "$U_TOKEN" ]; then echo "::add-mask::$U_TOKEN"; fi
-          if [ -n "$ENV_VAR_JSON_DB" ]; then echo "::add-mask::$ENV_VAR_JSON_DB"; fi
+          for key in U_TOKEN ENV_VAR_JSON_DB; do
+            value=$(jq -r --arg k "$key" '.client_payload[$k] // empty' "$GITHUB_EVENT_PATH")
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
 
       # Base Infrastructure Cleanup & Space Logging
-      - name: Free disk space (standard)
+      - name: Free disk space
         if: ${{ github.event.client_payload.nuke }}
         timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
