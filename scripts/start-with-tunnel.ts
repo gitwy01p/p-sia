@@ -147,7 +147,7 @@ async function main() {
   // The app needs the tunnel URL at startup, so it starts after the tunnel.
   console.log("Starting Elysia app...");
 
-  app = spawn("bun", ["app.ts"], {
+  app = spawn("bun", ["run", "start::server"], {
     stdio: "inherit",
     env: {
       ...process.env,
