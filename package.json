@@ -11,7 +11,8 @@
     "build:tsdown:2": "bun run tsdown -c ./2.tsdown.config.ts",
     "build:tsdown:3": "bun run tsdown -c ./3.tsdown.config.ts",
     "build:tsdown:4": "bun run tsdown -c ./4.tsdown.config.ts",
-    "start::server": "bun run ./app/app.mjs"
+    "start:server": "bun run ./app/app.mjs",
+    "dev": "bun run --watch ./app.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -26,7 +27,7 @@
     "@logtape/elysia": "^2.4.2",
     "@logtape/logtape": "^2.4.2",
     "@upstash/redis": "^1.41.0",
-    "elysia": "latest",
+    "elysia": "^2.0.0-beta.32",
     "hono": "latest",
     "puppeteer": "^25.17.0",
     "puppeteer-extra": "^3.3.6",
