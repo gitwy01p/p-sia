@@ -5,7 +5,7 @@ import { NS_promise } from "@x/core/client/promise.ts";
 import { NS_Misc } from "@x/core/client/misc.ts";
 import { PptXGenericProcessHandler } from "@x/ppt/routes/generic.ts";
 import { NS_routes_c } from "@x/core/client/route.ts";
-import { FfmpegV2HandleProcessData } from "../app-render/src/sub-router/probe";
+import { FfmpegV2HandleProcessData } from "@x/ff-dl/probe";
 import { NS_scrape_post_processing_helper } from "@x/post-process/helper";
 
 run();

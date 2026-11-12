@@ -29,8 +29,22 @@ jobs:
           done
 
       # Base Infrastructure Cleanup & Space Logging
-      - name: Free disk space
+      - name: Free disk space (standard)
         if: ${{ github.event.client_payload.nuke }}
+        timeout-minutes: 4
+        uses: jlumbroso/free-disk-space@main
+        with:
+          preinstalled-runtimes: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          large-packages: false
+          swap-storage: false
+
+      # Aggressive GitHub Runner Disk Cleanup
+      - name: Free disk space (aggressive)
+        if: ${{ github.event.client_payload.nuke_aggr }}
         timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
         with:
