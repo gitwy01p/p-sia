@@ -5,9 +5,9 @@ import { NS_error } from "@x/core/client/error.ts";
 import { NS_routes_elysia } from "@x/core/server/routes-elysia.ts";
 import { IS_GH, NS_runtime } from "@x/types/env.runtime";
 import { ProximaRouter } from "@x/post-process/proxima";
-import { dlV1Router } from "../app-render/src/sub-router/showtime";
-import { StreamRouter } from "../app-render/src/sub-router/stream";
-import { FfmpegV2Router } from "../app-render/src/sub-router/probe";
+import { dlV1Router } from "@x/ff-dl/dl";
+import { StreamRouter } from "@x/ff-dl/stream";
+import { FfmpegV2Router } from "@x/ff-dl/probe";
 import { XGenericRouter } from "@x/ppt/routes/generic.ts";
 import { ScrapePlaybackRouter } from "@x/post-process/routes/scrape-playback.ts";
 

@@ -4,7 +4,7 @@ import { redis } from "@x/post-process/cache";
 import { NS_crypto_client } from "@x/core/client/crypto.ts";
 import { NS_promise } from "@x/core/client/promise.ts";
 import { NS_Misc } from "@x/core/client/misc.ts";
-import { dlV1RouterProcessPayload } from "../app-render/src/sub-router/showtime";
+import { dlV1RouterProcessPayload } from "@x/ff-dl/dl";
 
 run();
 
