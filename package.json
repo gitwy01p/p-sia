@@ -5,11 +5,13 @@
   "private": true,
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build:tsdown": "bun run build:tsdown:1 && bun run build:tsdown:2 && bun run build:tsdown:3 && bun run build:tsdown:4",
+    "build:tsdown": "bun run build:tsdown:0 && bun run build:tsdown:1 && bun run build:tsdown:2 && bun run build:tsdown:3 && bun run build:tsdown:4",
+    "build:tsdown:0": "bun run tsdown -c ./0.tsdown.config.ts",
     "build:tsdown:1": "bun run tsdown -c ./1.tsdown.config.ts",
     "build:tsdown:2": "bun run tsdown -c ./2.tsdown.config.ts",
     "build:tsdown:3": "bun run tsdown -c ./3.tsdown.config.ts",
-    "build:tsdown:4": "bun run tsdown -c ./4.tsdown.config.ts"
+    "build:tsdown:4": "bun run tsdown -c ./4.tsdown.config.ts",
+    "start::server": "bun run ./app/app.mjs"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -19,10 +21,19 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@chneau/elysia-logger": "^1.0.12",
+    "@elysiajs/cors": "^1.4.2",
+    "@logtape/elysia": "^2.4.2",
+    "@logtape/logtape": "^2.4.2",
+    "@upstash/redis": "^1.41.0",
     "elysia": "latest",
     "hono": "latest",
-    "valibot": "^1.5.0",
-    "@chneau/elysia-logger": "^1.0.12",
-    "@elysiajs/cors": "^1.4.2"
+    "puppeteer": "^25.17.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-adblocker": "^2.13.6",
+    "puppeteer-extra-plugin-anonymize-ua": "^2.4.6",
+    "puppeteer-extra-plugin-devtools": "^2.4.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "valibot": "^1.5.0"
   }
 }
