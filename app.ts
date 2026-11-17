@@ -8,8 +8,8 @@ import { ProximaRouter } from "@x/post-process/proxima";
 import { dlV1Router } from "@x/ff-dl/dl";
 import { StreamRouter } from "@x/ff-dl/stream";
 import { FfmpegV2Router } from "@x/ff-dl/probe";
-import { XGenericRouter } from "@x/ppt/routes/generic.ts";
-import { ScrapePlaybackRouter } from "@x/post-process/routes/scrape-playback.ts";
+import { XGenericRouter_elysia } from "@x/ppt/routes/generic.ts";
+import { ScrapePlaybackRouter_elysia } from "@x/post-process/routes/scrape-playback.ts";
 
 const PORT = process.env.PORT || 7860;
 
@@ -100,8 +100,8 @@ const app = new Elysia()
   .use(dlV1Router)
   .use(FfmpegV2Router)
   .use(StreamRouter)
-  .use(ScrapePlaybackRouter)
-  .use(XGenericRouter)
+  .use(ScrapePlaybackRouter_elysia)
+  .use(XGenericRouter_elysia)
   .mount("/", ProximaRouter.fetch)
 
   .get("/", async () => {
