@@ -22,6 +22,8 @@ async function run() {
 
   if (!rawPayload) {
     console.error("Critical Failure: Incoming client trigger payload missing.");
+    console.log(" ");
+
     process.exit(1);
   }
 
@@ -30,35 +32,18 @@ async function run() {
   console.log("PAYLOAD >>>", payload);
   console.log(" ");
 
+  const task_payload = payload.task_payload;
+
+  if (!NS_Misc.F_is_record(task_payload)) {
+    process.exit(1);
+  }
+
+  const [E_, R_] = await NS_promise.F_catch_promise({
+    promise: handle_process({ payload: task_payload })
+  });
+
   try {
-    const task_payload = payload.task_payload;
-
-    if (!NS_Misc.F_is_record(task_payload)) {
-      process.exit(1);
-    }
-
     const cache_id = task_payload.cache_id;
-
-    const REQ0 = NS_routes_c.F_is_url(task_payload.REQ0)
-      ? new URL(task_payload.REQ0)
-      : undefined;
-
-    const body = task_payload.body;
-    const portal = task_payload.portal;
-
-    const proxies = await get_dbproxy();
-
-    const [E_, R_] = await NS_promise.F_catch_promise({
-      promise: PptXGenericProcessHandler({
-        payload: body,
-        portal,
-        REQ_ORIGIN: REQ0?.origin,
-        self_host: {
-          probe: FfmpegV2HandleProcessData,
-          proxies: proxies
-        }
-      })
-    });
 
     if (E_) {
       console.error("E_", E_);
@@ -166,4 +151,35 @@ async function get_dbproxy() {
       is_fallback
     }
   };
+}
+
+async function handle_process(arg0: { payload: Record<string, any> }) {
+  const { payload } = arg0;
+
+  const REQ0 = NS_routes_c.F_is_url(payload.REQ0)
+    ? new URL(payload.REQ0)
+    : undefined;
+
+  const body = payload.body;
+  const portal = payload.portal;
+
+  const proxies = await get_dbproxy();
+
+  const [E_, R_] = await NS_promise.F_catch_promise({
+    promise: PptXGenericProcessHandler({
+      payload: body,
+      portal,
+      REQ_ORIGIN: REQ0?.origin,
+      self_host: {
+        probe: FfmpegV2HandleProcessData,
+        proxies: proxies
+      }
+    })
+  });
+
+  if (E_) {
+    throw E_;
+  }
+
+  return R_;
 }
