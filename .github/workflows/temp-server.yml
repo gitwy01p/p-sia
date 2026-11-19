@@ -3,9 +3,11 @@ name: Temporary Public Server
 # repository_dispatch has no `inputs:` (that is workflow_dispatch only), so all
 # values come from client_payload:
 #   duration   minutes to keep the server up (default 60)
+#   runner     ubuntu-latest (default) or ubuntu-24.04
 #   task       string or array: ffmpeg | ff-dl | puppeteer | puppeteer-deps |
 #              puppeteer-shell | skip-deps
 #   nuke       free extra disk space first
+#   nuke_aggr  free even more disk space (slower)
 #   U_URL, U_TOKEN, ENV_VAR_JSON_DB, ID   forwarded to the server as env vars
 on:
   repository_dispatch:
@@ -13,12 +15,22 @@ on:
 
 jobs:
   server:
-    runs-on: ubuntu-24.04
+    # Runner image: ubuntu-latest by default. Send "runner": "ubuntu-24.04" in
+    # client_payload to pin it. Only the labels in the list below are accepted,
+    # anything else falls back to ubuntu-latest (a typo'd label would otherwise
+    # leave the job queued forever). Add more labels to the list if you need them.
+    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04"]'), github.event.client_payload.runner) && github.event.client_payload.runner || 'ubuntu-latest' }}
     timeout-minutes: 70
 
     steps:
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
+
+      # ubuntu-latest moves over time, so log what you actually got.
+      - name: Log runner image
+        run: |
+          . /etc/os-release
+          echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-} | OS: $PRETTY_NAME"
 
       - name: Mask secrets
         shell: bash
@@ -69,13 +81,13 @@ jobs:
           bun --version
 
       # Task flags (string or array):
-      #   ffmpeg           install ffmpeg
       #   ff-dl            install the Hugging Face CLI
       #   puppeteer        download Chrome for Puppeteer (also relaxes the Ubuntu 24.04 sandbox restriction)
       #   puppeteer-deps   same, plus Chrome's system libraries (--install-deps, runs as root)
       #   puppeteer-shell  also download chrome-headless-shell
       #   skip-deps        skip bun install
-      - name: Node Dependencies | Install FFmpeg | HF CLI | Puppeteer Chrome (parallel)
+      #   ffmpeg           installed in its own step AFTER this one (see below)
+      - name: Node Dependencies | HF CLI | Puppeteer Chrome (parallel)
         timeout-minutes: 5
         shell: bash
         env:
@@ -89,10 +101,6 @@ jobs:
           names=()
           deps_started=0
 
-          # Only one apt/dpkg user at a time: ffmpeg and puppeteer --install-deps
-          # both call apt, and concurrent runs fight over the dpkg lock.
-          APT_LOCK="$RUNNER_TEMP/apt.lock"
-
           run_bg() {
             local name=$1
             shift
@@ -105,7 +113,7 @@ jobs:
           # so a stalled download is killed and fails the step instead of
           # hanging forever.
 
-          # task can be a string ("ffmpeg") or an array (["ffmpeg","ff-dl"])
+          # task can be a string ("ff-dl") or an array (["ff-dl","puppeteer"])
           has_task() {
             jq -e --arg t "$1" '
               if type == "array" then any(.[]; . == $t)
@@ -128,22 +136,6 @@ jobs:
               touch "$RUNNER_TEMP/deps.fail"
               return 1
             fi
-          }
-
-          # Try the install first (runner apt lists are usually fresh enough);
-          # only run `apt-get update` if it fails, then install again.
-          install_ffmpeg() {
-            (
-              flock 9
-              {
-                timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg ||
-                {
-                  timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
-                  timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
-                }
-              }
-            ) 9>"$APT_LOCK" &&
-            ffmpeg -version | head -1
           }
 
           install_hf() {
@@ -186,12 +178,9 @@ jobs:
             if has_task puppeteer-deps; then
               # --install-deps needs root, so run as root but keep the browser in
               # the runner user's cache dir, then hand ownership back.
-              (
-                flock 9
-                timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
-                timeout -k 10 400 sudo -E env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$cache" \
-                  bunx --bun puppeteer browsers install chrome --install-deps
-              ) 9>"$APT_LOCK" || return 1
+              timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+              timeout -k 10 400 sudo -E env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$cache" \
+                bunx --bun puppeteer browsers install chrome --install-deps || return 1
               sudo chown -R "$(id -u):$(id -g)" "$cache" || return 1
             else
               timeout -k 10 300 bunx --bun puppeteer browsers install chrome || return 1
@@ -209,7 +198,6 @@ jobs:
             deps_started=1
             run_bg deps install_deps
           fi
-          if has_task ffmpeg; then run_bg ffmpeg install_ffmpeg; else echo "⏭️  skipping ffmpeg (task has no 'ffmpeg')"; fi
           if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
           if has_task puppeteer || has_task puppeteer-deps || has_task puppeteer-shell; then
             run_bg puppeteer install_puppeteer
@@ -248,6 +236,30 @@ jobs:
           fi
 
           echo "✅ All installs finished."
+
+      # Runs after the parallel step, only when task has "ffmpeg"
+      # (matches a string task by substring, an array task by exact element).
+      - name: Install FFmpeg
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
+        timeout-minutes: 4
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          APT_OPTS=(
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+          )
+
+          # Try the install first (runner apt lists are usually fresh enough);
+          # only run `apt-get update` if it fails, then install again.
+          timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg || {
+            timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+            timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
+          }
+
+          ffmpeg -version | sed -n 1p
 
       - name: Install cloudflared
         run: |
