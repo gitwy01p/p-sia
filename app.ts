@@ -56,10 +56,14 @@ const app = new Elysia()
     }
   })
 
-  .onError(async ({ code, error }) => {
+  .onError(async (ctx: any) => {
+    const { code, error } = ctx;
+
     let e_message = "";
+
     if (code === "VALIDATION") {
       e_message = (error as any).message;
+
       try {
         e_message = JSON.parse(e_message).summary;
       } catch (err) {}
@@ -74,6 +78,7 @@ const app = new Elysia()
       _browser: false,
       _log: ["\n"]
     });
+
     NS_Misc.console.error({
       ENV: IS_GH() ? "all" : "dev",
       _browser: false,
