@@ -119,7 +119,7 @@ async function handle_process(arg0: { payload: Record<string, any> }) {
           return NS_crypto_client.F_decode_unicode_v1({
             data_str: data_key,
             _is_url_safe: true,
-            encoded: "hex"
+            encoded: "plain"
           });
         })()
       });
