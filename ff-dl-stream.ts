@@ -110,21 +110,24 @@ async function handle_process(arg0: { payload: Record<string, any> }) {
 
   const REQ0 = new URL(payload.REQ0);
 
-  const data_key = REQ0.searchParams.get("data_key") || payload.data_key;
+  const data_key = payload.data_key;
+  const e_data_key = REQ0.searchParams.get("edk");
 
   const metadata = await (async () => {
     try {
-      const [E_, R_] = await NS_promise.F_catch_promise({
-        promise: (async () => {
-          return NS_crypto_client.F_decode_unicode_v1({
-            data_str: data_key,
-            _is_url_safe: true,
-            encoded: "plain"
-          });
-        })()
-      });
+      if (e_data_key) {
+        const [E_, R_] = await NS_promise.F_catch_promise({
+          promise: (async () => {
+            return NS_crypto_client.F_decode_unicode_v1({
+              data_str: e_data_key,
+              _is_url_safe: true,
+              encoded: "plain"
+            });
+          })()
+        });
 
-      if (NS_Misc.F_is_record(R_)) return R_;
+        if (NS_Misc.F_is_record(R_)) return R_;
+      }
 
       const _ = await redis()?.get(`${data_key}`);
 
@@ -147,6 +150,7 @@ async function handle_process(arg0: { payload: Record<string, any> }) {
   const [E_, R_] = await NS_promise.F_catch_promise({
     promise: NS_ff_dl_stream.handle_payload({
       data_key,
+      e_data_key,
       metadata: metadata as any,
       REQ0,
       REQ_ORIGIN: REQ0.origin
