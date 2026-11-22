@@ -1,0 +1,125 @@
+name: 🚐 Deploy to Velixir
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["**"]
+    paths:
+      - "apps/primary/**"
+      - "packages/**"
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: velixir-deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install the velixir CLI
+        shell: bash
+        run: |
+          curl -fsSL https://velixir.net/install.sh | sh
+          echo "$HOME/.velixir/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy all apps
+        env:
+          APPS_URL: ${{ secrets.VELIXIR_APPS_URL }}
+        run: |
+          set -uo pipefail   # no -e: one bad entry must not stop the rest
+
+          if [ -z "$APPS_URL" ]; then
+            echo "::error::Add the VELIXIR_APPS_URL secret (points at your data.json) under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          # ---------- 1. Fetch app list ----------
+          DATA=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "$APPS_URL") || {
+            echo "::error::Could not fetch app list from VELIXIR_APPS_URL"; exit 1; }
+
+          if ! jq -e 'type == "array" and length > 0' <<<"$DATA" >/dev/null 2>&1; then
+            echo "::error::App list is not a non-empty JSON array"; exit 1
+          fi
+
+          # ---------- 2. Mask runtime-fetched keys (not auto-masked by GitHub) ----------
+          while IFS= read -r k; do
+            [ -n "$k" ] && echo "::add-mask::$k"
+          done < <(jq -r '.[].KEY // empty' <<<"$DATA")
+
+          # ---------- 3. Deploy with automatic retry ----------
+          MAX_ATTEMPTS=2
+          RETRY_DELAY=30
+
+          deploy_app() {
+            local key="$1" app_id="$2" attempt=1
+            while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+              if VELIXIR_API_KEY="$key" VELIXIR_APP_ID="$app_id" \
+                 timeout 900 velixir deploy --source-dir ./ --app "$app_id" </dev/null; then
+                return 0
+              fi
+              if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                echo "::warning::Attempt $attempt/$MAX_ATTEMPTS failed for $app_id, retrying in ${RETRY_DELAY}s"
+                sleep "$RETRY_DELAY"
+              fi
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
+          # ---------- 4. Loop over apps ----------
+          COUNT=$(jq length <<<"$DATA")
+          OK=0; FAIL=0; SKIPPED=0; FAILED_LIST=""
+
+          for i in $(seq 0 $((COUNT - 1))); do
+            # Accepts both the "diabled" spelling and the correct "disabled".
+            # Handles a real boolean (true) as well as the string "true".
+            DISABLED=$(jq -r ".[$i] | (.diabled // .disabled // false) | tostring | ascii_downcase" <<<"$DATA")
+            LABEL=$(jq -r ".[$i][\"\"] // .[$i].APP_ID // \"entry-$i\"" <<<"$DATA")
+
+            if [ "$DISABLED" = "true" ]; then
+              echo "⏭️  [$((i + 1))/$COUNT] Skipping disabled entry: ${LABEL:-entry-$i}"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+
+            KEY=$(jq -r ".[$i].KEY // empty" <<<"$DATA")
+            APP_ID=$(jq -r ".[$i].APP_ID // empty" <<<"$DATA")
+
+            if [ -z "$KEY" ] || [ -z "$APP_ID" ]; then
+              echo "::warning::Entry #$i is missing KEY or APP_ID, skipping"
+              FAIL=$((FAIL + 1)); FAILED_LIST="$FAILED_LIST #$i(invalid)"
+              continue
+            fi
+
+            echo "::group::[$((i + 1))/$COUNT] Deploying app: ${LABEL:-entry-$i} : $APP_ID"
+            if deploy_app "$KEY" "$APP_ID"; then
+              echo "✅ ok"; OK=$((OK + 1))
+            else
+              echo "::warning::Deploy failed for app $APP_ID after $MAX_ATTEMPTS attempts"
+              FAIL=$((FAIL + 1)); FAILED_LIST="$FAILED_LIST $APP_ID"
+            fi
+            echo "::endgroup::"
+          done
+
+          # ---------- 5. Summary ----------
+          {
+            echo "### Velixir deploy results"
+            echo "- ✅ Succeeded: $OK"
+            echo "- ⏭️ Skipped (disabled): $SKIPPED"
+            echo "- ❌ Failed: $FAIL${FAILED_LIST:+ (${FAILED_LIST# })}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$OK" -eq 0 ] && [ "$FAIL" -eq 0 ]; then
+            echo "::notice::Every entry in the list is disabled, nothing was deployed"
+          fi
+
+          # Every enabled app was attempted; now surface failures by turning the job red
+          [ "$FAIL" -eq 0 ] || exit 1
