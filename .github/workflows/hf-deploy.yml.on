@@ -1,0 +1,213 @@
+name: 🤗 Deploy to Hugging Face
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/isolated/app-render/**"
+      - "packages/**"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  sync-to-hf:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: hf-deploy
+      cancel-in-progress: false
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🚀 Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: 📦 Install Dependencies
+        run: bun install
+
+      - name: 🏗️ Build with tsdown
+        run: |
+          cd apps/isolated/app-render
+          bun run build:tsdown
+
+          # tsdown already bundled the @x/* workspace packages into dist/, so they're
+          # not needed at runtime. Strip them from package.json — otherwise `bun install`
+          # on Hugging Face's build fails trying to resolve `workspace:*` refs it has
+          # no monorepo context for.
+          jq '
+            if has("dependencies") then .dependencies |= with_entries(select(.key | test("^@x/") | not)) else . end |
+            if has("devDependencies") then .devDependencies |= with_entries(select(.key | test("^@x/") | not)) else . end |
+            if has("peerDependencies") then .peerDependencies |= with_entries(select(.key | test("^@x/") | not)) else . end |
+            if has("optionalDependencies") then .optionalDependencies |= with_entries(select(.key | test("^@x/") | not)) else . end
+          ' package.json > package.json.tmp && mv package.json.tmp package.json
+
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add -f dist/ package.json
+          git commit -m "chore: include build artifacts and strip workspace-only deps for HF" || echo "No changes to commit"
+
+      - name: 🔍 Verify build output
+        run: test -d apps/isolated/app-render/dist
+
+      - name: 🚚 Push mini app to all Hugging Face Spaces
+        env:
+          HF_SPACES_URL: ${{ secrets.HF_SPACES_URL }}
+        run: |
+          set -uo pipefail   # no -e: one failing Space must not stop the rest
+
+          if [ -z "$HF_SPACES_URL" ]; then
+            echo "::error::Add the HF_SPACES_URL secret (points at your data.json) under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          # ---------- 1. Fetch Space list ----------
+          DATA=$(curl -fsSL --retry 3 --retry-delay 2 --max-time 30 "$HF_SPACES_URL") || {
+            echo "::error::Could not fetch Space list from HF_SPACES_URL"; exit 1; }
+
+          if ! jq -e 'type == "array" and length > 0' <<<"$DATA" >/dev/null 2>&1; then
+            echo "::error::Space list is not a non-empty JSON array"; exit 1
+          fi
+
+          # ---------- 2. Mask runtime-fetched tokens ----------
+          while IFS= read -r tok; do
+            [ -n "$tok" ] && echo "::add-mask::$tok" \
+              && echo "::add-mask::$(jq -rn --arg v "$tok" '$v|@uri')"
+          done < <(jq -r '.[].token // empty' <<<"$DATA")
+
+          # ---------- 3. Split the subtree once — shared base for every Space ----------
+          if ! git subtree split --prefix=apps/isolated/app-render -b hf-temp; then
+            echo "::error::git subtree split failed — nothing to push to any Space"
+            exit 1
+          fi
+          ORIG_SHA=$(git rev-parse hf-temp)
+
+          # ---------- 4. One disposable worktree, reset per account ----------
+          WORKTREE_DIR="/tmp/hf-worktree"
+          rm -rf "$WORKTREE_DIR"
+          git worktree add --detach "$WORKTREE_DIR" "$ORIG_SHA"
+
+          # README frontmatter patcher — only touches keys present in the account's "md" object
+          cat > /tmp/update_readme.py <<'PYEOF'
+          import json, os, re, sys
+
+          readme_path = sys.argv[1]
+          md = json.loads(os.environ.get("MD_JSON", "{}"))
+
+          if not md:
+              sys.exit(0)  # nothing to update
+
+          with open(readme_path, "r", encoding="utf-8") as f:
+              content = f.read()
+
+          if not content.startswith("---\n"):
+              print(f"::warning::{readme_path} has no YAML frontmatter, skipping", file=sys.stderr)
+              sys.exit(0)
+
+          parts = content.split("---\n", 2)
+          if len(parts) < 3:
+              print(f"::warning::{readme_path} frontmatter block is malformed, skipping", file=sys.stderr)
+              sys.exit(0)
+
+          _, frontmatter, rest = parts
+          updated_keys = set()
+          new_lines = []
+          for line in frontmatter.splitlines():
+              m = re.match(r"^([A-Za-z0-9_]+):(\s*)(.*)$", line)
+              if m and m.group(1) in md:
+                  key = m.group(1)
+                  new_lines.append(f"{key}: {md[key]}")
+                  updated_keys.add(key)
+              else:
+                  new_lines.append(line)
+
+          # Append any md keys not already present in the frontmatter
+          for key, value in md.items():
+              if key not in updated_keys:
+                  new_lines.append(f"{key}: {value}")
+
+          new_content = "---\n" + "\n".join(new_lines) + "\n---\n" + rest
+          with open(readme_path, "w", encoding="utf-8") as f:
+              f.write(new_content)
+
+          print(f"Updated frontmatter keys: {sorted(md.keys())}")
+          PYEOF
+
+          # ---------- 5. Loop over Spaces ----------
+          COUNT=$(jq length <<<"$DATA")
+          OK=0; FAIL=0; SKIPPED=0; FAILED_LIST=""
+
+          for i in $(seq 0 $((COUNT - 1))); do
+            NAME=$(jq -r ".[$i].name // empty" <<<"$DATA")
+            LABEL="${NAME:-entry-$i}"
+
+            # Accepts both the "diabled" spelling and the correct "disabled".
+            # Handles a real boolean (true) as well as the string "true".
+            DISABLED=$(jq -r ".[$i] | (.diabled // .disabled // false) | tostring | ascii_downcase" <<<"$DATA")
+
+            if [ "$DISABLED" = "true" ]; then
+              echo "⏭️  [$((i + 1))/$COUNT] Skipping disabled entry: $LABEL"
+              SKIPPED=$((SKIPPED + 1))
+              continue
+            fi
+
+            OWNER=$(jq -r ".[$i].owner // empty" <<<"$DATA")
+            SPACE=$(jq -r ".[$i].space // empty" <<<"$DATA")
+            TOKEN=$(jq -r ".[$i].token // empty" <<<"$DATA")
+            MD=$(jq -c ".[$i].md // {}" <<<"$DATA")
+
+            if [ -z "$OWNER" ] || [ -z "$SPACE" ] || [ -z "$TOKEN" ]; then
+              echo "::warning::Entry #$i ($LABEL) is missing owner, space, or token, skipping"
+              FAIL=$((FAIL + 1)); FAILED_LIST="$FAILED_LIST ${LABEL}(invalid)"
+              continue
+            fi
+
+            echo "::group::[$((i + 1))/$COUNT] $LABEL → ${OWNER}/${SPACE}"
+
+            # Reset the worktree to the shared base before each account's edits
+            git -C "$WORKTREE_DIR" reset --hard "$ORIG_SHA"
+
+            MD_JSON="$MD" python3 /tmp/update_readme.py "$WORKTREE_DIR/README.md"
+
+            if ! git -C "$WORKTREE_DIR" diff --quiet -- README.md; then
+              git -C "$WORKTREE_DIR" add README.md
+              git -C "$WORKTREE_DIR" commit -m "chore: update HF Space metadata (${LABEL})"
+            fi
+
+            OWNER_ENC=$(jq -rn --arg v "$OWNER" '$v|@uri')
+            TOKEN_ENC=$(jq -rn --arg v "$TOKEN" '$v|@uri')
+            HF_URL="https://${OWNER_ENC}:${TOKEN_ENC}@huggingface.co/spaces/${OWNER}/${SPACE}"
+
+            if timeout 300 git -C "$WORKTREE_DIR" push "$HF_URL" HEAD:main --force </dev/null; then
+              echo "✅ ok"; OK=$((OK + 1))
+            else
+              echo "::warning::Push failed for $LABEL (${OWNER}/${SPACE})"
+              FAIL=$((FAIL + 1)); FAILED_LIST="$FAILED_LIST $LABEL"
+            fi
+            echo "::endgroup::"
+          done
+
+          git worktree remove "$WORKTREE_DIR" --force || true
+          git branch -D hf-temp || true
+
+          # ---------- 6. Summary ----------
+          {
+            echo "### Hugging Face deploy results"
+            echo "- ✅ Succeeded: $OK"
+            echo "- ⏭️ Skipped (disabled): $SKIPPED"
+            echo "- ❌ Failed: $FAIL${FAILED_LIST:+ (${FAILED_LIST# })}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$OK" -eq 0 ] && [ "$FAIL" -eq 0 ]; then
+            echo "::notice::Every entry in the list is disabled, nothing was pushed"
+          fi
+
+          [ "$FAIL" -eq 0 ] || exit 1
+
+      - name: 🔔 Notify on failure
+        if: failure()
+        run: echo "❌ Failed to sync one or more Hugging Face Spaces"
