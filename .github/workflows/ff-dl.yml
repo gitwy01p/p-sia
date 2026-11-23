@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           for key in U_TOKEN ENV_VAR_JSON_DB; do
-            value=$(jq -r --arg k "$key" '.client_payload[$k] // empty' "$GITHUB_EVENT_PATH")
+            value=$(jq -r --arg k "$key" '.client_payload.flags[$k] // empty' "$GITHUB_EVENT_PATH")
             if [ -n "$value" ]; then echo "::add-mask::$value"; fi
           done
 

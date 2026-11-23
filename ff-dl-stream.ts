@@ -171,7 +171,11 @@ async function handle_process(arg0: { payload: Record<string, any> }) {
   console.log("metadata >>>", metadata);
   console.log(" ");
 
-  const s2s_progress = metadata.s2s_progress;
+  const s2s_progress = payload.s2s_progress || metadata.s2s_progress;
+
+  if (s2s_progress) {
+    metadata.s2s_progress = s2s_progress;
+  }
 
   console.log("s2s_progress >>>", s2s_progress);
   console.log(" ");
