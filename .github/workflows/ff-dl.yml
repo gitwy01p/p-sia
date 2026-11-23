@@ -18,10 +18,14 @@ jobs:
         uses: actions/checkout@v4
 
       # ubuntu-latest moves over time, so log what you actually got.
+      # Also exposes the image id, used as part of the ffmpeg cache key.
       - name: Log runner image
+        id: img
         run: |
           . /etc/os-release
           echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-} | OS: $PRETTY_NAME"
+          echo "os=${ImageOS:-$ID$VERSION_ID}" >> "$GITHUB_OUTPUT"
+          echo "ver=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
       # Keep payload secrets out of the logs (the worker logs the payload).
       - name: Mask secrets
@@ -80,6 +84,10 @@ jobs:
       #   puppeteer-shell  also download chrome-headless-shell
       #   skip-deps        skip bun install
       #   ffmpeg           installed in its own step AFTER this one (see below)
+      #
+      # Payload flags (client_payload.flags):
+      #   ffmpeg_cache     restore the ffmpeg apt cache (only read when this is set;
+      #                    the cache is still saved after a fresh install)
       - name: Node Dependencies | HF CLI | Puppeteer Chrome (parallel)
         timeout-minutes: 5
         shell: bash
@@ -230,6 +238,18 @@ jobs:
 
           echo "✅ All installs finished."
 
+      # Only read the cache when the dispatch payload has flags.ffmpeg_cache.
+      # A miss is not an error: the install step just downloads as usual.
+      - name: Restore FFmpeg apt cache
+        id: ffmpeg-cache
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') && github.event.client_payload.flags.ffmpeg_cache }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-debs
+          key: ffmpeg-apt-${{ steps.img.outputs.os }}-${{ steps.img.outputs.ver }}
+          restore-keys: |
+            ffmpeg-apt-${{ steps.img.outputs.os }}-
+
       # Runs after the parallel step, only when task has "ffmpeg"
       # (matches a string task by substring, an array task by exact element).
       - name: Install FFmpeg
@@ -243,16 +263,43 @@ jobs:
             -o Acquire::http::Timeout=30
             -o Acquire::https::Timeout=30
             -o DPkg::Lock::Timeout=60
+            -o APT::Keep-Downloaded-Packages=true
           )
+          DEBS="$RUNNER_TEMP/ffmpeg-debs"
+          mkdir -p "$DEBS"
 
-          # Try the install first (runner apt lists are usually fresh enough);
-          # only run `apt-get update` if it fails, then install again.
-          timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg || {
-            timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+          # Seed apt's archive with cached debs. apt only uses one if it matches
+          # the exact version it wants; anything else is downloaded as usual.
+          if compgen -G "$DEBS/*.deb" >/dev/null; then
+            echo "📦 seeding apt archive with $(ls "$DEBS"/*.deb | wc -l) cached debs"
+            sudo cp "$DEBS"/*.deb /var/cache/apt/archives/
+          fi
+
+          install_ffmpeg() {
             timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
           }
 
+          # Try the install first (runner apt lists are usually fresh enough);
+          # only run `apt-get update` if it fails, then install again.
+          install_ffmpeg || {
+            timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+            install_ffmpeg
+          }
+
+          # Collect whatever apt has now so the save step has something to store
+          sudo cp -n /var/cache/apt/archives/*.deb "$DEBS"/ 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$DEBS"
+
           ffmpeg -version | sed -n 1p
+
+      # Save after a fresh install (skipped on an exact cache hit).
+      # Runs even when the flag is off, so flagless runs seed the cache.
+      - name: Save FFmpeg apt cache
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') && steps.ffmpeg-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-debs
+          key: ffmpeg-apt-${{ steps.img.outputs.os }}-${{ steps.img.outputs.ver }}
 
       # Check disk metrics again right before launching runtime execution
       - name: Log Pre-Execution Disk Space

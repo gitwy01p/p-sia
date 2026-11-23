@@ -45,9 +45,6 @@ async function run() {
     const cache_id = task_payload.cache_id;
 
     if (E_) {
-      console.error("E_", E_);
-      console.log(" ");
-
       const { message } = NS_error.F_collect_error_message({ ERR: E_ });
 
       const [E__, R__] = await NS_promise.F_catch_promise({
