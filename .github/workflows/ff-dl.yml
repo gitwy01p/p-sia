@@ -254,7 +254,7 @@ jobs:
       # (matches a string task by substring, an array task by exact element).
       - name: Install FFmpeg
         if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
-        timeout-minutes: 5
+        timeout-minutes: 10
         shell: bash
         env:
           DEBIAN_FRONTEND: noninteractive
