@@ -12,7 +12,7 @@ jobs:
     # client_payload to pin it. Only the labels in the list below are accepted,
     # anything else falls back to ubuntu-latest (a typo'd label would otherwise
     # leave the job queued forever). Add more labels to the list if you need them.
-    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04"]'), github.event.client_payload.runner) && github.event.client_payload.runner || 'ubuntu-latest' }}
+    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04"]'), github.event.client_payload.flags.runner) && github.event.client_payload.flags.runner || 'ubuntu-latest' }}
     steps:
       - name: Checkout Code Architecture
         uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
 
       # Base Infrastructure Cleanup & Space Logging
       - name: Free disk space (standard)
-        if: ${{ github.event.client_payload.nuke }}
+        if: ${{ github.event.client_payload.flags.nuke }}
         timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
         with:
@@ -48,7 +48,7 @@ jobs:
 
       # Aggressive GitHub Runner Disk Cleanup
       - name: Free disk space (aggressive)
-        if: ${{ github.event.client_payload.nuke_aggr }}
+        if: ${{ github.event.client_payload.flags.nuke_aggr }}
         timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
         with:
@@ -268,10 +268,10 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
           IS_GH: "1"
           NODE_ENV: "production"
-          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.U_URL }}
-          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
-          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
-          ID: ${{ github.event.client_payload.ID }}
+          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.flags.U_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.flags.U_TOKEN }}
+          ENV_VAR_JSON_DB: ${{ github.event.client_payload.flags.ENV_VAR_JSON_DB }}
+          ID: ${{ github.event.client_payload.flags.ID }}
           INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
           # Fallback to a default script if no specific worker is provided
           TARGET_WORKER: ${{ github.event.client_payload.worker || 'index.ts' }}

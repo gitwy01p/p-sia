@@ -19,7 +19,7 @@ jobs:
     # client_payload to pin it. Only the labels in the list below are accepted,
     # anything else falls back to ubuntu-latest (a typo'd label would otherwise
     # leave the job queued forever). Add more labels to the list if you need them.
-    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04"]'), github.event.client_payload.runner) && github.event.client_payload.runner || 'ubuntu-latest' }}
+    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04"]'), github.event.client_payload.flags.runner) && github.event.client_payload.flags.runner || 'ubuntu-latest' }}
     timeout-minutes: 70
 
     steps:
@@ -42,7 +42,7 @@ jobs:
 
       # Base Infrastructure Cleanup & Space Logging
       - name: Free disk space (standard)
-        if: ${{ github.event.client_payload.nuke }}
+        if: ${{ github.event.client_payload.flags.nuke }}
         timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
         with:
@@ -56,7 +56,7 @@ jobs:
 
       # Aggressive GitHub Runner Disk Cleanup
       - name: Free disk space (aggressive)
-        if: ${{ github.event.client_payload.nuke_aggr }}
+        if: ${{ github.event.client_payload.flags.nuke_aggr }}
         timeout-minutes: 4
         uses: jlumbroso/free-disk-space@main
         with:
@@ -273,10 +273,10 @@ jobs:
           NODE_ENV: production
           IS_GH: "1"
           PORT: 7860
-          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.U_URL }}
-          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.U_TOKEN }}
-          ENV_VAR_JSON_DB: ${{ github.event.client_payload.ENV_VAR_JSON_DB }}
-          ID: ${{ github.event.client_payload.ID }}
+          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.flags.U_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.flags.U_TOKEN }}
+          ENV_VAR_JSON_DB: ${{ github.event.client_payload.flags.ENV_VAR_JSON_DB }}
+          ID: ${{ github.event.client_payload.flags.ID }}
         run: |
           # Output goes to a file so this step can finish cleanly; the
           # "Keep job alive" step streams it afterwards.
@@ -310,7 +310,7 @@ jobs:
 
       - name: Keep job alive
         env:
-          DURATION_MINUTES: ${{ github.event.client_payload.duration || 60 }}
+          DURATION_MINUTES: ${{ github.event.client_payload.flags.duration || 60 }}
         run: |
           [[ "$DURATION_MINUTES" =~ ^[0-9]+$ ]] || DURATION_MINUTES=60
           DURATION_SECONDS=$(( DURATION_MINUTES * 60 ))
