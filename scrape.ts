@@ -87,7 +87,7 @@ async function run() {
 
         await redis()?.set(
           cache_id,
-          { data: R_ },
+          { data: R_?.data || R_ },
           {
             ex: ONE_MIN_IN_SECONDS
           }
