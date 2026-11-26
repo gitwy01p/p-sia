@@ -10,6 +10,7 @@ import { StreamRouter } from "@x/ff-dl/stream";
 import { FfmpegV2Router } from "@x/ff-dl/probe";
 import { XGenericRouter_elysia } from "@x/ppt/routes/generic.ts";
 import { ScrapePlaybackRouter_elysia } from "@x/post-process/routes/scrape-playback.ts";
+import { scrape_sub_router } from "./scrape";
 
 const PORT = process.env.PORT || 7860;
 
@@ -106,7 +107,7 @@ const app = new Elysia()
   .use(FfmpegV2Router)
   .use(StreamRouter)
   .use(ScrapePlaybackRouter_elysia)
-  .use(XGenericRouter_elysia)
+  .use(scrape_sub_router)
   .mount("/", ProximaRouter.fetch)
 
   .get("/", async () => {

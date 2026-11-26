@@ -7,6 +7,8 @@ import { PptXGenericProcessHandler } from "@x/ppt/routes/generic.ts";
 import { NS_routes_c } from "@x/core/client/route.ts";
 import { FfmpegV2HandleProcessData } from "@x/ff-dl/probe";
 import { NS_scrape_post_processing_helper } from "@x/post-process/helper";
+import { Elysia, t, type Context } from "elysia";
+import { NS_general_crawl } from "@x/ppt/validator/general-crawl.ts";
 
 run();
 
@@ -152,6 +154,37 @@ async function get_dbproxy() {
     }
   };
 }
+
+export const scrape_sub_router = new Elysia({
+  prefix: "/scrape",
+  normalize: "typebox"
+}).post(
+  "/playback/:portal",
+  {
+    body: NS_general_crawl.route_schema.v,
+    params: t.Object({
+      portal: t.String({
+        error() {
+          return "Invalid portal, Expected string";
+        }
+      })
+    })
+  },
+  async (ctx) => {
+    const { query, params, request, status, body } = ctx;
+
+    const req_signal = request.signal;
+    const { portal } = params;
+
+    return await handle_process({
+      payload: {
+        portal,
+        body,
+        REQ0: (body as any).req0
+      }
+    });
+  }
+);
 
 async function handle_process(arg0: { payload: Record<string, any> }) {
   const { payload } = arg0;
