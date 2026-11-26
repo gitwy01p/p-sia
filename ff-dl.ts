@@ -141,8 +141,7 @@ async function F_get_metadata(arg0: { payload: Record<string, any> }) {
         promise: (async () => {
           return NS_crypto_client.F_decode_unicode_v1({
             data_str: e_data_key,
-            _is_url_safe: true,
-            encoded: "base64"
+            _is_url_safe: true
           });
         })()
       });
