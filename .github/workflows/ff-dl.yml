@@ -1,0 +1,339 @@
+name: Gh App Pipeline
+
+run-name: "${{ github.event.client_payload.title || format('{0} #{1}', github.event.action, github.run_number) }}"
+
+on:
+  repository_dispatch:
+    types: [trigger-gh-app]
+
+jobs:
+  process-stream:
+    # Runner image: ubuntu-latest by default. Send "runner": "ubuntu-24.04" in
+    # client_payload to pin it. Only the labels in the list below are accepted,
+    # anything else falls back to ubuntu-latest (a typo'd label would otherwise
+    # leave the job queued forever). Add more labels to the list if you need them.
+    runs-on: ${{ contains(fromJSON('["ubuntu-latest","ubuntu-24.04"]'), github.event.client_payload.flags.runner) && github.event.client_payload.flags.runner || 'ubuntu-latest' }}
+    steps:
+      - name: Checkout Code Architecture
+        uses: actions/checkout@v4
+
+      # ubuntu-latest moves over time, so log what you actually got.
+      # Also exposes the image id, used as part of the ffmpeg cache key.
+      - name: Log runner image
+        id: img
+        run: |
+          . /etc/os-release
+          echo "Runner image: ${ImageOS:-unknown} ${ImageVersion:-} | OS: $PRETTY_NAME"
+          echo "os=${ImageOS:-$ID$VERSION_ID}" >> "$GITHUB_OUTPUT"
+          echo "ver=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+      # Keep payload secrets out of the logs (the worker logs the payload).
+      - name: Mask secrets
+        shell: bash
+        run: |
+          for key in U_TOKEN ENV_VAR_JSON_DB; do
+            value=$(jq -r --arg k "$key" '.client_payload.flags[$k] // empty' "$GITHUB_EVENT_PATH")
+            if [ -n "$value" ]; then echo "::add-mask::$value"; fi
+          done
+
+      # Base Infrastructure Cleanup & Space Logging
+      - name: Free disk space (standard)
+        if: ${{ github.event.client_payload.flags.nuke }}
+        timeout-minutes: 4
+        uses: jlumbroso/free-disk-space@main
+        with:
+          preinstalled-runtimes: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          large-packages: false
+          swap-storage: false
+
+      # Aggressive GitHub Runner Disk Cleanup
+      - name: Free disk space (aggressive)
+        if: ${{ github.event.client_payload.flags.nuke_aggr }}
+        timeout-minutes: 4
+        uses: jlumbroso/free-disk-space@main
+        with:
+          preinstalled-runtimes: true
+          android: true
+          dotnet: true
+          haskell: true
+          docker-images: true
+          large-packages: true
+          swap-storage: true
+
+      # Install Bun (must run before the parallel install step)
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Verify Bun
+        shell: bash
+        run: |
+          set -e
+          command -v bun
+          bun --version
+
+      # Task flags (string or array):
+      #   ff-dl            install the Hugging Face CLI
+      #   puppeteer        download Chrome for Puppeteer (also relaxes the Ubuntu 24.04 sandbox restriction)
+      #   puppeteer-deps   same, plus Chrome's system libraries (--install-deps, runs as root)
+      #   puppeteer-shell  also download chrome-headless-shell
+      #   skip-deps        skip bun install
+      #   ffmpeg           installed in its own step AFTER this one (see below)
+      #
+      # Payload flags (client_payload.flags):
+      #   ffmpeg_cache     restore the ffmpeg apt cache (only read when this is set;
+      #                    the cache is still saved after a fresh install)
+      - name: Node Dependencies | HF CLI | Puppeteer Chrome (parallel)
+        timeout-minutes: 5
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          TASK: ${{ toJson(github.event.client_payload.task) }}
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          pids=()
+          names=()
+          deps_started=0
+
+          run_bg() {
+            local name=$1
+            shift
+            "$@" >"$RUNNER_TEMP/$name.log" 2>&1 &
+            pids+=($!)
+            names+=("$name")
+          }
+
+          # No retries: every network command below is wrapped in `timeout`,
+          # so a stalled download is killed and fails the step instead of
+          # hanging forever.
+
+          # task can be a string ("ff-dl") or an array (["ff-dl","puppeteer"])
+          has_task() {
+            jq -e --arg t "$1" '
+              if type == "array" then any(.[]; . == $t)
+              elif type == "string" then contains($t)
+              else false end
+            ' <<<"$TASK" >/dev/null
+          }
+
+          APT_OPTS=(
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+          )
+
+          # Drops a marker file so the puppeteer job knows when node_modules is ready
+          install_deps() {
+            if timeout -k 10 240 bun install --frozen-lockfile; then
+              touch "$RUNNER_TEMP/deps.ok"
+            else
+              touch "$RUNNER_TEMP/deps.fail"
+              return 1
+            fi
+          }
+
+          install_hf() {
+            curl --connect-timeout 20 --max-time 120 -LsSf \
+              https://hf.co/cli/install.sh -o "$RUNNER_TEMP/hf-install.sh" &&
+            timeout -k 10 300 bash "$RUNNER_TEMP/hf-install.sh" --exclude-skill &&
+            hf --version
+          }
+
+          # Bun does not run dependency postinstall scripts by default, so the
+          # puppeteer package never downloads its own Chrome. Download it here.
+          # Puppeteer expects one specific Chrome build, so use the project's own
+          # puppeteer version: that means waiting for `bun install` first.
+          install_puppeteer() {
+            local i cache="$HOME/.cache/puppeteer"
+
+            # Ubuntu 24.04 blocks unprivileged user namespaces via AppArmor,
+            # which breaks Chrome's sandbox ("No usable sandbox").
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 ||
+              echo "⚠️  could not relax the AppArmor restriction; launch Chrome with --no-sandbox instead"
+
+            if [ "$deps_started" = "1" ]; then
+              echo "waiting for bun install..."
+              for ((i = 0; i < 300; i++)); do
+                [ -f "$RUNNER_TEMP/deps.ok" ] && break
+                if [ -f "$RUNNER_TEMP/deps.fail" ]; then
+                  echo "bun install failed, cannot install browsers"
+                  return 1
+                fi
+                sleep 1
+              done
+              if [ ! -f "$RUNNER_TEMP/deps.ok" ]; then
+                echo "timed out waiting for bun install"
+                return 1
+              fi
+            else
+              echo "⚠️  skip-deps is set: fetching puppeteer via bunx, its Chrome build may not match your project's puppeteer version"
+            fi
+
+            if has_task puppeteer-deps; then
+              # --install-deps needs root, so run as root but keep the browser in
+              # the runner user's cache dir, then hand ownership back.
+              timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+              timeout -k 10 400 sudo -E env "PATH=$PATH" "PUPPETEER_CACHE_DIR=$cache" \
+                bunx --bun puppeteer browsers install chrome --install-deps || return 1
+              sudo chown -R "$(id -u):$(id -g)" "$cache" || return 1
+            else
+              timeout -k 10 300 bunx --bun puppeteer browsers install chrome || return 1
+            fi
+
+            if has_task puppeteer-shell; then
+              timeout -k 10 300 bunx --bun puppeteer browsers install chrome-headless-shell || return 1
+            fi
+          }
+
+          # Start everything in parallel
+          if has_task skip-deps; then
+            echo "⏭️  skipping bun install (task has 'skip-deps')"
+          else
+            deps_started=1
+            run_bg deps install_deps
+          fi
+          if has_task ff-dl; then run_bg hf install_hf; else echo "⏭️  skipping HF CLI (task has no 'ff-dl')"; fi
+          if has_task puppeteer || has_task puppeteer-deps || has_task puppeteer-shell; then
+            run_bg puppeteer install_puppeteer
+          else
+            echo "⏭️  skipping puppeteer Chrome (task has no 'puppeteer*')"
+          fi
+
+          # Heartbeat: show which jobs are still running and their last log line,
+          # so a stall is visible immediately instead of a silent step.
+          while :; do
+            alive=()
+            for i in "${!pids[@]}"; do
+              if kill -0 "${pids[$i]}" 2>/dev/null; then alive+=("${names[$i]}"); fi
+            done
+            [ "${#alive[@]}" -eq 0 ] && break
+            sleep 10
+            echo "⏳ ${SECONDS}s elapsed, still running: ${alive[*]}"
+            for n in "${alive[@]}"; do
+              echo "   ↳ $n: $(tail -n 1 "$RUNNER_TEMP/$n.log" 2>/dev/null | cut -c1-200)"
+            done
+          done
+
+          # Collect results, show logs, fail the job if any install failed
+          fail=0
+          for i in "${!pids[@]}"; do
+            if wait "${pids[$i]}"; then s="ok"; else s="FAILED"; fail=1; fi
+            echo "::group::${names[$i]} ($s)"
+            cat "$RUNNER_TEMP/${names[$i]}.log"
+            echo "::endgroup::"
+            if [ "$s" = "FAILED" ]; then echo "::error::${names[$i]} install failed"; fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "❌ One or more installs failed, aborting."
+            exit 1
+          fi
+
+          echo "✅ All installs finished."
+
+      # Only read the cache when the dispatch payload has flags.ffmpeg_cache.
+      # A miss is not an error: the install step just downloads as usual.
+      - name: Restore FFmpeg apt cache
+        id: ffmpeg-cache
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') && github.event.client_payload.flags.ffmpeg_cache }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-debs
+          key: ffmpeg-apt-${{ steps.img.outputs.os }}-${{ steps.img.outputs.ver }}
+          restore-keys: |
+            ffmpeg-apt-${{ steps.img.outputs.os }}-
+
+      # Runs after the parallel step, only when task has "ffmpeg"
+      # (matches a string task by substring, an array task by exact element).
+      - name: Install FFmpeg
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          APT_OPTS=(
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+            -o APT::Keep-Downloaded-Packages=true
+          )
+          DEBS="$RUNNER_TEMP/ffmpeg-debs"
+          mkdir -p "$DEBS"
+
+          # Seed apt's archive with cached debs. apt only uses one if it matches
+          # the exact version it wants; anything else is downloaded as usual.
+          if compgen -G "$DEBS/*.deb" >/dev/null; then
+            echo "📦 seeding apt archive with $(ls "$DEBS"/*.deb | wc -l) cached debs"
+            sudo cp "$DEBS"/*.deb /var/cache/apt/archives/
+          fi
+
+          install_ffmpeg() {
+            timeout -k 10 300 sudo apt-get "${APT_OPTS[@]}" install -y -qq --no-install-recommends ffmpeg
+          }
+
+          # Try the install first (runner apt lists are usually fresh enough);
+          # only run `apt-get update` if it fails, then install again.
+          install_ffmpeg || {
+            timeout -k 10 120 sudo apt-get "${APT_OPTS[@]}" update -qq &&
+            install_ffmpeg
+          }
+
+          # Collect whatever apt has now so the save step has something to store
+          sudo cp -n /var/cache/apt/archives/*.deb "$DEBS"/ 2>/dev/null || true
+          sudo chown -R "$(id -u):$(id -g)" "$DEBS"
+
+          ffmpeg -version | sed -n 1p
+
+      # Save after a fresh install (skipped on an exact cache hit).
+      # Runs even when the flag is off, so flagless runs seed the cache.
+      - name: Save FFmpeg apt cache
+        if: ${{ contains(github.event.client_payload.task, 'ffmpeg') && steps.ffmpeg-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ffmpeg-debs
+          key: ffmpeg-apt-${{ steps.img.outputs.os }}-${{ steps.img.outputs.ver }}
+
+      # Check disk metrics again right before launching runtime execution
+      - name: Log Pre-Execution Disk Space
+        run: |
+          echo "============================================="
+          echo "📊 PRE-EXECUTION DISK SPACE (After Installations)"
+          echo "============================================="
+          df -h /
+
+      # Run target worker
+      - name: Execute Targeted Worker
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+          IS_GH: "1"
+          NODE_ENV: "production"
+          UPSTASH_REDIS_REST_URL: ${{ github.event.client_payload.flags.U_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.client_payload.flags.U_TOKEN }}
+          ENV_VAR_JSON_DB: ${{ github.event.client_payload.flags.ENV_VAR_JSON_DB }}
+          ID: ${{ github.event.client_payload.flags.ID }}
+          INPUT_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          # Fallback to a default script if no specific worker is provided
+          TARGET_WORKER: ${{ github.event.client_payload.worker || 'index.ts' }}
+        run: |
+          echo "============================================="
+          echo "VALIDATION PHASE: Checking target script..."
+          echo "Target Script: $TARGET_WORKER"
+          echo "============================================="
+
+          # Check if the requested file actually exists on the runner's disk
+          if [ ! -f "$TARGET_WORKER" ]; then
+            echo "❌ CRITICAL ERROR: The requested worker file '$TARGET_WORKER' does not exist."
+            echo "Please check your API payload parameters for typos or verify the file is committed to Git."
+            exit 1
+          fi
+
+          echo "✅ Validation successful! Launching execution environment..."
+          bun run "$TARGET_WORKER"
