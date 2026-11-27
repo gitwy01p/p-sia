@@ -11,10 +11,13 @@ import { FfmpegV2Router } from "@x/ff-dl/probe";
 import { XGenericRouter_elysia } from "@x/ppt/routes/generic.ts";
 import { ScrapePlaybackRouter_elysia } from "@x/post-process/routes/scrape-playback.ts";
 import { scrape_sub_router } from "./scrape";
+import { NS_bucket } from "@x/ff-dl/bucket";
 
 const PORT = process.env.PORT || 7860;
 
 await NS_runtime.set_env_var_db();
+
+await NS_bucket.setup_hf_bucket();
 
 const app = new Elysia()
 

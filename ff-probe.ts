@@ -6,6 +6,7 @@ import { NS_promise } from "@x/core/client/promise.ts";
 import { NS_Misc } from "@x/core/client/misc.ts";
 import { FfmpegV2HandleProcessData } from "@x/ff-dl/probe";
 import { NS_routes_c } from "@x/core/client/route.ts";
+import { NS_bucket } from "@x/ff-dl/bucket";
 
 run();
 
@@ -16,6 +17,8 @@ async function run() {
   console.log(" ");
 
   await set_env_var_db();
+
+  await NS_bucket.setup_hf_bucket();
 
   const rawPayload = process.env.INPUT_PAYLOAD;
 
